@@ -10,7 +10,18 @@ const PIPED_INSTANCES = [
     'https://pipedapi.adminforge.de',
 ];
 
+// In-memory cache for search results (10 min TTL)
+const searchCache = new Map();
+const SEARCH_CACHE_TTL = 10 * 60 * 1000;
+
 const search = async (query) => {
+    // Check search cache
+    const cacheKey = query.toLowerCase().trim();
+    const cached = searchCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < SEARCH_CACHE_TTL) {
+        return cached.data;
+    }
+
     try {
         const output = await ytDlp(query, {
             dumpSingleJson: true,
@@ -20,8 +31,9 @@ const search = async (query) => {
             preferFreeFormats: true,
         });
 
+        let results;
         if (output.entries) {
-            return output.entries.map(entry => ({
+            results = output.entries.map(entry => ({
                 id: entry.id,
                 title: entry.title,
                 uploader: entry.uploader,
@@ -29,9 +41,13 @@ const search = async (query) => {
                 view_count: entry.view_count,
                 thumbnail: entry.thumbnail || `https://i.ytimg.com/vi/${entry.id}/hqdefault.jpg`
             }));
+        } else {
+            results = [output];
         }
 
-        return [output];
+        // Cache the results
+        searchCache.set(cacheKey, { data: results, timestamp: Date.now() });
+        return results;
     } catch (error) {
         console.error('Error searching YouTube:', error);
         throw error;
