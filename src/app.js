@@ -38,6 +38,8 @@ app.use('/user', userRoutes);
 app.use('/playlist', playlistRoutes);
 app.use('/recommendations', recommendationRoutes);
 app.use('/home', homeRoutes);
+const queueRoutes = require('./routes/queue');
+app.use('/queue', queueRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
