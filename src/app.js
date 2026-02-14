@@ -12,6 +12,7 @@ app.use(cors());
 app.use(compression());
 app.use(morgan('dev'));
 app.use(express.json());
+app.enable('trust proxy');
 
 // Routes
 app.get('/', (req, res) => {

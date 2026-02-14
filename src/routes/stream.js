@@ -9,12 +9,24 @@ router.get('/', async (req, res) => {
         return res.status(400).json({ error: 'Missing videoId' });
     }
 
+    // Construct Proxy URL
+    const protocol = req.protocol;
+    const host = req.get('host');
+    const proxyUrl = `${protocol}://${host}/stream/proxy?videoId=${videoId}`;
+
     try {
         const streamData = await youtubeService.getStreamUrl(videoId);
-        res.status(200).json(streamData);
+
+        if (streamData) {
+            // Return a COPY with the proxy URL
+            res.status(200).json({ ...streamData, url: proxyUrl });
+        } else {
+            res.status(200).json({ url: proxyUrl });
+        }
     } catch (error) {
         console.error('Stream Error:', error);
-        res.status(500).json({ error: 'Failed to get stream URL' });
+        // Fallback: return proxy URL even if metadata fails (client can still try to play)
+        res.status(200).json({ url: proxyUrl });
     }
 });
 
