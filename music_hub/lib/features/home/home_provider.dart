@@ -1,52 +1,45 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/song.dart';
 import '../../services/api/api_service.dart';
-import '../../features/auth/auth_service.dart';
 
 class HomeData {
-  final List<Song> recentlyPlayed;
+  final List<Song> recentlyPlayed; // This is actually New Releases based on backend logic
   final List<Song> madeForYou;
   final List<Song> trendingNow;
+  
+  final String madeForYouTitle;
+  final String trendingNowTitle;
+  final String recentlyPlayedTitle;
 
   HomeData({
     required this.recentlyPlayed,
     required this.madeForYou,
     required this.trendingNow,
+    this.madeForYouTitle = 'Made For You',
+    this.trendingNowTitle = 'Trending Now',
+    this.recentlyPlayedTitle = 'New Releases',
   });
 }
 
 final homeProvider = FutureProvider<HomeData>((ref) async {
   final apiService = ref.watch(apiServiceProvider);
-  final user = ref.watch(authStateProvider).value;
 
-  // Fetch recommendations (Made For You)
-  final recommendationsResponse = await apiService.get('/recommendations', queryParameters: {
-    'uid': user?.uid,
-  });
-  final madeForYou = (recommendationsResponse as List)
-      .map((e) => Song.fromJson(e))
-      .toList();
-
-  // Fetch trending (Trending Now) - reusing recommendations for now with a specific query if needed, 
-  // or just fetching a fixed playlist. For this MVP, let's allow the backend to decide or use a search query.
-  // We'll use a search for "trending" for now as per plan.
-  final trendingResponse = await apiService.get('/search', queryParameters: {'q': 'trending music'});
-  final trendingNow = (trendingResponse as List)
-      .map((e) => Song.fromJson(e))
-      .toList();
-
-  // Recently Played - currently backend might not persist this effectively for new users,
-  // so we'll leave it empty or mock it for now until history is implemented.
-  // Or if we want to show something, maybe "new releases".
-  // Let's just use another search for "new music" for the first section to have data.
-  final newMusicResponse = await apiService.get('/search', queryParameters: {'q': 'new music'});
-  final recentlyPlayed = (newMusicResponse as List)
-      .map((e) => Song.fromJson(e))
-      .toList();
+  // Single call — backend reads user's language + moods and returns personalized results
+  // We pass the local hour so the greeting/context title matches the USER'S time, not server time.
+  final localHour = DateTime.now().hour;
+  final response = await apiService.get('/home', queryParameters: {'localHour': localHour});
+  final titles = response['titles'] ?? {};
 
   return HomeData(
-    recentlyPlayed: recentlyPlayed,
-    madeForYou: madeForYou,
-    trendingNow: trendingNow,
+    madeForYou: (response['madeForYou'] as List).map((e) => Song.fromJson(e)).toList(),
+    trendingNow: (response['trendingNow'] as List).map((e) => Song.fromJson(e)).toList(),
+    recentlyPlayed: (response['recentlyPlayed'] as List).map((e) => Song.fromJson(e)).toList(),
+    
+    // Dynamic titles
+    madeForYouTitle: titles['madeForYou'] ?? 'Made For You',
+    trendingNowTitle: titles['trendingNow'] ?? 'Trending Now',
+    recentlyPlayedTitle: titles['recentlyPlayed'] ?? 'New Releases',
   );
 });
+
+

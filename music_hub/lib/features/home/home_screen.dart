@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_hub/features/home/home_content.dart';
 import 'package:music_hub/features/library/library_screen.dart';
+import 'package:music_hub/features/player/mini_player.dart';
 import 'package:music_hub/features/profile/profile_screen.dart';
 import 'package:music_hub/features/search/search_screen.dart';
 
@@ -16,7 +17,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _currentIndex = 0;
 
   final List<Widget> _screens = [
-    const HomeContent(), // Extract home content to separate widget
+    const HomeContent(),
     const SearchScreen(),
     const LibraryScreen(),
     const ProfileScreen(),
@@ -25,9 +26,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _screens,
+      body: Column(
+        children: [
+          Expanded(
+            child: IndexedStack(
+              index: _currentIndex,
+              children: _screens,
+            ),
+          ),
+          // Mini player (shows when a song is playing)
+          const MiniPlayer(),
+        ],
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
@@ -46,3 +55,4 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 }
+

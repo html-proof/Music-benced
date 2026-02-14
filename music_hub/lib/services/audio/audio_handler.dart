@@ -3,12 +3,17 @@ import 'package:just_audio/just_audio.dart';
 
 class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   final AudioPlayer _player = AudioPlayer();
+  void Function()? onComplete;
 
   AudioPlayerHandler() {
     _player.playbackEventStream.map(_transformEvent).pipe(playbackState);
     _player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed) {
-        stop();
+        if (onComplete != null) {
+          onComplete!();
+        } else {
+          stop();
+        }
       }
     });
   }
@@ -39,15 +44,18 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   PlaybackState _transformEvent(PlaybackEvent event) {
     return PlaybackState(
       controls: [
+        MediaControl.skipToPrevious,
         if (_player.playing) MediaControl.pause else MediaControl.play,
-        MediaControl.stop,
+        MediaControl.skipToNext,
       ],
       systemActions: const {
         MediaAction.seek,
         MediaAction.seekForward,
         MediaAction.seekBackward,
+        MediaAction.skipToNext,
+        MediaAction.skipToPrevious,
       },
-      androidCompactActionIndices: const [0, 1],
+      androidCompactActionIndices: const [0, 1, 2],
       processingState: const {
         ProcessingState.idle: AudioProcessingState.idle,
         ProcessingState.loading: AudioProcessingState.loading,
@@ -63,3 +71,4 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     );
   }
 }
+

@@ -7,13 +7,15 @@ const String kBaseUrl = 'https://data-fetch-production.up.railway.app';
 final apiServiceProvider = Provider<ApiService>((ref) => ApiService());
 
 class ApiService {
+  static String get baseUrl => kBaseUrl;
   final Dio _dio;
 
   ApiService()
       : _dio = Dio(BaseOptions(
           baseUrl: kBaseUrl,
-          connectTimeout: const Duration(seconds: 10),
-          receiveTimeout: const Duration(seconds: 10),
+          connectTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 90),
+          sendTimeout: const Duration(seconds: 30),
         ));
 
   Dio get client => _dio;

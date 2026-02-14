@@ -8,7 +8,20 @@ final authServiceProvider = Provider<AuthService>((ref) {
 });
 
 final authStateProvider = StreamProvider<User?>((ref) {
-  return FirebaseAuth.instance.authStateChanges();
+  final authStream = FirebaseAuth.instance.authStateChanges();
+  
+  // Automatically sync token with ApiService whenever auth state changes
+  authStream.listen((user) async {
+    final apiService = ref.read(apiServiceProvider);
+    if (user != null) {
+      final token = await user.getIdToken();
+      apiService.setAuthToken(token ?? '');
+    } else {
+      apiService.setAuthToken('');
+    }
+  });
+
+  return authStream;
 });
 
 class AuthService {
