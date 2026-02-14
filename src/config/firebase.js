@@ -2,22 +2,39 @@ const admin = require('firebase-admin');
 
 try {
     if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-        // If the service account is provided as a JSON string in an env var
-        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-        admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount),
-            databaseURL: process.env.FIREBASE_DATABASE_URL
-        });
+        let serviceAccountStr = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
+
+        // Handle cases where the JSON might be wrapped in extra quotes from Railway environment
+        if (serviceAccountStr.startsWith('"') && serviceAccountStr.endsWith('"')) {
+            serviceAccountStr = serviceAccountStr.substring(1, serviceAccountStr.length - 1);
+        }
+
+        try {
+            const serviceAccount = JSON.parse(serviceAccountStr);
+            admin.initializeApp({
+                credential: admin.credential.cert(serviceAccount),
+                databaseURL: process.env.FIREBASE_DATABASE_URL
+            });
+            console.log('Firebase Admin Initialized (using Service Account)');
+        } catch (parseError) {
+            console.error('FIREBASE_SERVICE_ACCOUNT JSON Parse Error:', parseError.message);
+            console.error('Env Var Length:', (process.env.FIREBASE_SERVICE_ACCOUNT || '').length);
+            // Redacted log for safety: show only start/end
+            const raw = process.env.FIREBASE_SERVICE_ACCOUNT || '';
+            const preview = raw.substring(0, 15) + '...' + raw.substring(raw.length - 5);
+            console.error('Value Preview:', preview);
+            throw parseError;
+        }
     } else {
-        // Fallback to application default credentials or other methods
+        // Fallback to application default credentials (useful for local development with GOOGLE_APPLICATION_CREDENTIALS)
         admin.initializeApp({
             credential: admin.credential.applicationDefault(),
             databaseURL: process.env.FIREBASE_DATABASE_URL
         });
+        console.log('Firebase Admin Initialized (using Application Default Credentials)');
     }
-    console.log('Firebase Admin Initialized');
 } catch (error) {
-    console.error('Firebase Initialization Error:', error);
+    console.error('CRITICAL: Firebase Initialization Failed:', error.message);
 }
 
 const db = admin.database();
