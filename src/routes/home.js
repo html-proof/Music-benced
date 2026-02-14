@@ -36,14 +36,21 @@ router.get('/', optionalAuth, async (req, res) => {
             if (!Array.isArray(moods)) moods = [moods];
         }
 
-        // Build personalized search queries
+        // Build personalized search queries - STRICTLY enforce language
         const lang = languages.length > 0 ? languages[0] : 'English';
-        const mood1 = moods.length > 0 ? moods[0] : 'popular';
-        const mood2 = moods.length > 1 ? moods[1] : 'trending';
 
+        // Pick moods or defaults
+        const mood1 = moods.length > 0 ? moods[0] : 'Happy';
+        const mood2 = moods.length > 1 ? moods[1] : 'Chill';
+
+        // 1. Made For You: "{Language} {Mood} songs"
         const query1 = `${lang} ${mood1} songs`;
-        const query2 = `${lang} ${mood2} music`;
-        const query3 = `${lang} latest hits`;
+
+        // 2. Trending Now: "Trending {Language} songs" (Force language)
+        const query2 = `Trending ${lang} songs`;
+
+        // 3. New Releases: "New {Language} music" (Force language)
+        const query3 = `New ${lang} music ${new Date().getFullYear()}`;
 
         // Run all 3 searches in parallel
         const [madeForYou, trendingNow, recentlyPlayed] = await Promise.all([

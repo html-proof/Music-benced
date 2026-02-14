@@ -29,6 +29,11 @@ const search = async (query) => {
             flatPlaylist: true,
             noWarnings: true,
             preferFreeFormats: true,
+            skipDownload: true, // Ensure no download attempt
+            // Add these for speed:
+            format: 'bestaudio/best',
+            noCheckCertificate: true,
+            noPlaylist: true,
         });
 
         let results;
