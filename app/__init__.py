@@ -1,0 +1,1 @@
+"""Music Hub backend package."""
