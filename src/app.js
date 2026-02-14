@@ -14,6 +14,10 @@ app.use(morgan('dev'));
 app.use(express.json());
 
 // Routes
+app.get('/', (req, res) => {
+    res.status(200).send('Music Hub Node.js Backend 🎵');
+});
+
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
