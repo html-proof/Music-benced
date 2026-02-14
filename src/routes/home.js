@@ -36,21 +36,34 @@ router.get('/', optionalAuth, async (req, res) => {
             if (!Array.isArray(moods)) moods = [moods];
         }
 
-        // Build personalized search queries - STRICTLY enforce language
-        const lang = languages.length > 0 ? languages[0] : 'English';
+        // Build personalized search queries - STRICTLY enforce language if present
+        const hasLang = languages.length > 0;
+        const hasMood = moods.length > 0;
 
-        // Pick moods or defaults
-        const mood1 = moods.length > 0 ? moods[0] : 'Happy';
-        const mood2 = moods.length > 1 ? moods[1] : 'Chill';
+        const lang = hasLang ? languages[0] : '';
+        const mood1 = hasMood ? moods[0] : '';
+        const mood2 = (hasMood && moods.length > 1) ? moods[1] : '';
 
-        // 1. Made For You: "{Language} {Mood} songs"
-        const query1 = `${lang} ${mood1} songs`;
+        // 1. Made For You
+        // If lang+mood: "Tamil Happy songs"
+        // If only lang: "Tamil songs"
+        // If only mood: "Happy songs"
+        // If neither: "Trending songs"
+        let query1 = 'Trending songs';
+        if (hasLang && hasMood) query1 = `${lang} ${mood1} songs`;
+        else if (hasLang) query1 = `${lang} songs`;
+        else if (hasMood) query1 = `${mood1} songs`;
 
-        // 2. Trending Now: "Trending {Language} songs" (Force language)
-        const query2 = `Trending ${lang} songs`;
+        // 2. Trending Now
+        // If lang: "Trending Tamil songs"
+        // Else: "Trending songs"
+        let query2 = hasLang ? `Trending ${lang} songs` : 'Trending songs';
 
-        // 3. New Releases: "New {Language} music" (Force language)
-        const query3 = `New ${lang} music ${new Date().getFullYear()}`;
+        // 3. New Releases
+        // If lang: "New Tamil music 2024"
+        // Else: "New music 2024"
+        const year = new Date().getFullYear();
+        let query3 = hasLang ? `New ${lang} music ${year}` : `New music ${year}`;
 
         // Run all 3 searches in parallel
         const [madeForYou, trendingNow, recentlyPlayed] = await Promise.all([
