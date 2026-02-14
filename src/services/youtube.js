@@ -2,19 +2,24 @@ const ytDlp = require('yt-dlp-exec');
 
 // In-memory cache for stream URLs (30 min TTL)
 const streamCache = new Map();
-const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const CACHE_TTL = 30 * 60 * 1000;
+
+const PIPED_INSTANCES = [
+    'https://pipedapi.kavin.rocks',
+    'https://pipedapi.r4fo.com',
+    'https://pipedapi.adminforge.de',
+];
 
 const search = async (query) => {
     try {
         const output = await ytDlp(query, {
             dumpSingleJson: true,
-            defaultSearch: 'ytsearch5', // Search for 5 results
+            defaultSearch: 'ytsearch5',
             flatPlaylist: true,
             noWarnings: true,
             preferFreeFormats: true,
         });
 
-        // If it's a search result (playlist), return the entries
         if (output.entries) {
             return output.entries.map(entry => ({
                 id: entry.id,
@@ -26,7 +31,6 @@ const search = async (query) => {
             }));
         }
 
-        // Single result fallback
         return [output];
     } catch (error) {
         console.error('Error searching YouTube:', error);
@@ -34,46 +38,92 @@ const search = async (query) => {
     }
 };
 
+// Fast: Piped API (~500ms, non-IP-locked URLs)
+const getStreamUrlFromPiped = async (videoId) => {
+    for (const instance of PIPED_INSTANCES) {
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 3000);
+
+            const res = await fetch(`${instance}/streams/${videoId}`, {
+                signal: controller.signal,
+            });
+            clearTimeout(timeout);
+
+            if (!res.ok) continue;
+
+            const data = await res.json();
+            const audioStreams = data.audioStreams || [];
+
+            // Pick best audio stream (sort by bitrate)
+            const best = audioStreams
+                .filter(s => s.mimeType && s.mimeType.startsWith('audio/'))
+                .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
+
+            if (best && best.url) {
+                return {
+                    url: best.url,
+                    title: data.title,
+                    duration: data.duration,
+                    thumbnail: data.thumbnailUrl,
+                };
+            }
+        } catch (e) {
+            // Try next instance
+            continue;
+        }
+    }
+    return null;
+};
+
+// Slow fallback: yt-dlp (2-5s)
+const getStreamUrlFromYtDlp = async (videoId) => {
+    const output = await ytDlp(`https://www.youtube.com/watch?v=${videoId}`, {
+        dumpSingleJson: true,
+        noWarnings: true,
+        format: 'bestaudio/best',
+        noCheckCertificates: true,
+    });
+
+    return {
+        url: output.url,
+        title: output.title,
+        duration: output.duration,
+        thumbnail: output.thumbnail,
+    };
+};
+
 const getStreamUrl = async (videoId) => {
-    // Check cache first
+    // 1. Check cache
     const cached = streamCache.get(videoId);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-        console.log(`Stream cache HIT for ${videoId}`);
         return cached.data;
     }
 
-    try {
-        const output = await ytDlp(`https://www.youtube.com/watch?v=${videoId}`, {
-            dumpSingleJson: true,
-            noWarnings: true,
-            format: 'bestaudio/best',
-        });
+    // 2. Try Piped (fast)
+    let result = await getStreamUrlFromPiped(videoId);
 
-        const result = {
-            url: output.url,
-            title: output.title,
-            duration: output.duration,
-            thumbnail: output.thumbnail
-        };
-
-        // Cache the result
-        streamCache.set(videoId, { data: result, timestamp: Date.now() });
-
-        return result;
-    } catch (error) {
-        console.error('Error getting stream URL:', error);
-        throw error;
+    // 3. Fallback to yt-dlp
+    if (!result) {
+        result = await getStreamUrlFromYtDlp(videoId);
     }
+
+    // Cache result
+    if (result) {
+        streamCache.set(videoId, { data: result, timestamp: Date.now() });
+    }
+
+    return result;
 };
 
-// Prefetch stream URLs for a list of video IDs (fire & forget)
 const prefetchStreamUrls = (videoIds) => {
     for (const id of videoIds) {
         if (!streamCache.has(id)) {
-            getStreamUrl(id).catch(() => { }); // silent fail
+            getStreamUrl(id).catch(() => { });
         }
     }
 };
 
 module.exports = { search, getStreamUrl, prefetchStreamUrls };
+
 
