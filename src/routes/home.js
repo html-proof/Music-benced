@@ -36,6 +36,15 @@ router.get('/', optionalAuth, async (req, res) => {
             if (!Array.isArray(moods)) moods = [moods];
         }
 
+        // 0. Context Helpers
+        const now = new Date();
+        const hour = now.getHours();
+        const year = now.getFullYear();
+        let timeContext = 'Late Night';
+        if (hour >= 5 && hour < 12) timeContext = 'Morning';
+        else if (hour >= 12 && hour < 17) timeContext = 'Afternoon';
+        else if (hour >= 17 && hour < 21) timeContext = 'Evening';
+
         // Build personalized search queries - STRICTLY enforce language if present
         const hasLang = languages.length > 0;
         const hasMood = moods.length > 0;
@@ -44,25 +53,19 @@ router.get('/', optionalAuth, async (req, res) => {
         const mood1 = hasMood ? moods[0] : '';
         const mood2 = (hasMood && moods.length > 1) ? moods[1] : '';
 
-        // 1. Made For You
-        // If lang+mood: "Tamil Happy songs"
-        // If only lang: "Tamil songs"
-        // If only mood: "Happy songs"
-        // If neither: "Trending songs"
-        let query1 = 'Trending songs';
-        if (hasLang && hasMood) query1 = `${lang} ${mood1} songs`;
-        else if (hasLang) query1 = `${lang} songs`;
-        else if (hasMood) query1 = `${mood1} songs`;
+        // 1. Made For You: Context + Mood + Lang
+        // "Morning Happy Tamil songs" or "Late Night Chill songs"
+        let query1 = `${timeContext} vibe songs`;
+        if (hasLang && hasMood) query1 = `${timeContext} ${mood1} ${lang} songs`;
+        else if (hasLang) query1 = `${timeContext} ${lang} songs`;
+        else if (hasMood) query1 = `${timeContext} ${mood1} songs`;
 
-        // 2. Trending Now
-        // If lang: "Trending Tamil songs"
-        // Else: "Trending songs"
-        let query2 = hasLang ? `Trending ${lang} songs` : 'Trending songs';
+        // 2. Trending Now: "Top {Lang} songs {Year}"
+        // "Top Tamil songs 2024"
+        let query2 = hasLang ? `Top ${lang} songs ${year}` : `Top songs ${year}`;
 
-        // 3. New Releases
-        // If lang: "New Tamil music 2024"
-        // Else: "New music 2024"
-        const year = new Date().getFullYear();
+        // 3. New Releases: "New {Lang} music {Year}" or Mood based
+        // "New Tamil music 2024"
         let query3 = hasLang ? `New ${lang} music ${year}` : `New music ${year}`;
 
         // Run all 3 searches in parallel
