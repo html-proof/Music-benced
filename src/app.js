@@ -29,6 +29,7 @@ const streamRoutes = require('./routes/stream');
 const userRoutes = require('./routes/user');
 const playlistRoutes = require('./routes/playlist');
 const recommendationRoutes = require('./routes/recommendations');
+const homeRoutes = require('./routes/home');
 
 app.use('/auth', authRoutes);
 app.use('/search', searchRoutes);
@@ -36,6 +37,7 @@ app.use('/stream', streamRoutes);
 app.use('/user', userRoutes);
 app.use('/playlist', playlistRoutes);
 app.use('/recommendations', recommendationRoutes);
+app.use('/home', homeRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
