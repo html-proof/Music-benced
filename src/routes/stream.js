@@ -21,12 +21,12 @@ router.get('/', async (req, res) => {
             // Return a COPY with the proxy URL
             res.status(200).json({ ...streamData, url: proxyUrl });
         } else {
-            res.status(200).json({ url: proxyUrl });
+            console.error('Stream not found for', videoId);
+            res.status(500).json({ error: 'Stream not found' });
         }
     } catch (error) {
         console.error('Stream Error:', error);
-        // Fallback: return proxy URL even if metadata fails (client can still try to play)
-        res.status(200).json({ url: proxyUrl });
+        res.status(500).json({ error: 'Failed to fetch stream URL' });
     }
 });
 

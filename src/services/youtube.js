@@ -49,6 +49,26 @@ const searchFromPiped = async (query) => {
     return null;
 };
 
+// Helper to write cookies file from env
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
+const writeCookiesFile = () => {
+    const b64 = process.env.YT_COOKIES_BASE64;
+    if (!b64) return null;
+
+    try {
+        const cookies = Buffer.from(b64, 'base64').toString('utf-8');
+        const cookiePath = path.join(os.tmpdir(), 'cookies.txt');
+        fs.writeFileSync(cookiePath, cookies);
+        return cookiePath;
+    } catch (e) {
+        console.error('Error writing cookies file:', e);
+        return null;
+    }
+};
+
 const search = async (query) => {
     // Check search cache
     const cacheKey = query.toLowerCase().trim();
@@ -64,19 +84,26 @@ const search = async (query) => {
         // 2. Fallback to yt-dlp (Slow but reliable)
         if (!results || results.length === 0) {
             console.log('Piped search failed, falling back to yt-dlp');
-            const output = await ytDlp(query, {
+
+            const cookiePath = writeCookiesFile();
+            const args = {
                 dumpSingleJson: true,
                 defaultSearch: 'ytsearch5',
                 flatPlaylist: true,
                 noWarnings: true,
                 preferFreeFormats: true,
-                skipDownload: true, // Ensure no download attempt
-                // Add these for speed:
+                skipDownload: true,
                 format: 'bestaudio/best',
                 noCheckCertificate: true,
                 noPlaylist: true,
                 extractorArgs: 'youtube:player_client=android',
-            });
+            };
+
+            if (cookiePath) {
+                args.cookies = cookiePath;
+            }
+
+            const output = await ytDlp(query, args);
 
             if (output.entries) {
                 results = output.entries.map(entry => ({
@@ -143,13 +170,20 @@ const getStreamUrlFromPiped = async (videoId) => {
 
 // Slow fallback: yt-dlp (2-5s)
 const getStreamUrlFromYtDlp = async (videoId) => {
-    const output = await ytDlp(`https://www.youtube.com/watch?v=${videoId}`, {
+    const cookiePath = writeCookiesFile();
+    const args = {
         dumpSingleJson: true,
         noWarnings: true,
         format: 'bestaudio/best',
         noCheckCertificates: true,
         extractorArgs: 'youtube:player_client=android',
-    });
+    };
+
+    if (cookiePath) {
+        args.cookies = cookiePath;
+    }
+
+    const output = await ytDlp(`https://www.youtube.com/watch?v=${videoId}`, args);
 
     return {
         url: output.url,
