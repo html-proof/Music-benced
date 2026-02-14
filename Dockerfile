@@ -1,6 +1,9 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
+
+# Install system dependencies (Python is required for yt-dlp)
+RUN apk add --no-cache python3 ffmpeg
 
 # Install dependencies
 COPY package*.json ./
