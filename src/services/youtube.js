@@ -1,5 +1,9 @@
 const ytDlp = require('yt-dlp-exec');
 
+// In-memory cache for stream URLs (30 min TTL)
+const streamCache = new Map();
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
 const search = async (query) => {
     try {
         const output = await ytDlp(query, {
@@ -31,6 +35,13 @@ const search = async (query) => {
 };
 
 const getStreamUrl = async (videoId) => {
+    // Check cache first
+    const cached = streamCache.get(videoId);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        console.log(`Stream cache HIT for ${videoId}`);
+        return cached.data;
+    }
+
     try {
         const output = await ytDlp(`https://www.youtube.com/watch?v=${videoId}`, {
             dumpSingleJson: true,
@@ -38,16 +49,31 @@ const getStreamUrl = async (videoId) => {
             format: 'bestaudio/best',
         });
 
-        return {
+        const result = {
             url: output.url,
             title: output.title,
             duration: output.duration,
             thumbnail: output.thumbnail
         };
+
+        // Cache the result
+        streamCache.set(videoId, { data: result, timestamp: Date.now() });
+
+        return result;
     } catch (error) {
         console.error('Error getting stream URL:', error);
         throw error;
     }
 };
 
-module.exports = { search, getStreamUrl };
+// Prefetch stream URLs for a list of video IDs (fire & forget)
+const prefetchStreamUrls = (videoIds) => {
+    for (const id of videoIds) {
+        if (!streamCache.has(id)) {
+            getStreamUrl(id).catch(() => { }); // silent fail
+        }
+    }
+};
+
+module.exports = { search, getStreamUrl, prefetchStreamUrls };
+

@@ -44,6 +44,12 @@ router.get('/', optionalAuth, async (req, res) => {
     try {
         const results = await youtubeService.search(q);
         res.status(200).json(results);
+
+        // Pre-warm stream cache for top results (fire & forget)
+        const topIds = results.slice(0, 3).map(r => r.id).filter(Boolean);
+        if (topIds.length > 0) {
+            youtubeService.prefetchStreamUrls(topIds);
+        }
     } catch (error) {
         res.status(500).json({ error: 'Search failed' });
     }
