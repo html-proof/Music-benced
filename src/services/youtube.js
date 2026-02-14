@@ -75,6 +75,7 @@ const search = async (query) => {
                 format: 'bestaudio/best',
                 noCheckCertificate: true,
                 noPlaylist: true,
+                extractorArgs: 'youtube:player_client=android',
             });
 
             if (output.entries) {
@@ -147,6 +148,7 @@ const getStreamUrlFromYtDlp = async (videoId) => {
         noWarnings: true,
         format: 'bestaudio/best',
         noCheckCertificates: true,
+        extractorArgs: 'youtube:player_client=android',
     });
 
     return {
