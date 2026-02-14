@@ -6,6 +6,31 @@ const verifyToken = require('../middlewares/auth');
 // Apply auth middleware to all user routes
 router.use(verifyToken);
 
+// Get user profile (check onboarding status)
+router.get('/profile', async (req, res) => {
+    const { uid } = req.user;
+
+    try {
+        const [langSnap, moodSnap] = await Promise.all([
+            db.ref(`users/${uid}/language`).once('value'),
+            db.ref(`users/${uid}/moods`).once('value'),
+        ]);
+
+        const language = langSnap.val();
+        const moods = moodSnap.val();
+        const hasCompletedOnboarding = !!(language && moods);
+
+        res.status(200).json({
+            hasCompletedOnboarding,
+            language: language || null,
+            moods: moods || null,
+        });
+    } catch (error) {
+        console.error('Profile fetch error:', error);
+        res.status(500).json({ error: 'Failed to get profile' });
+    }
+});
+
 // Update preferences (Generic)
 router.post('/preferences', async (req, res) => {
     const { uid } = req.user;
