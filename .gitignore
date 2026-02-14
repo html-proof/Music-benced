@@ -6,3 +6,6 @@ __pycache__/
 venv/
 *.egg-info/
 .pytest_cache/
+
+# Local Development
+music_hub/
