@@ -14,6 +14,40 @@ const PIPED_INSTANCES = [
 const searchCache = new Map();
 const SEARCH_CACHE_TTL = 10 * 60 * 1000;
 
+const searchFromPiped = async (query) => {
+    for (const instance of PIPED_INSTANCES) {
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 3000);
+
+            const res = await fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=music_songs`, {
+                signal: controller.signal
+            });
+            clearTimeout(timeout);
+
+            if (!res.ok) continue;
+            const data = await res.json();
+
+            if (!data.items) continue;
+
+            // Map Piped items to our format
+            return data.items
+                .filter(item => item.type === 'stream')
+                .map(item => ({
+                    id: item.url.split('/watch?v=')[1],
+                    title: item.title,
+                    uploader: item.uploaderName,
+                    duration: item.duration,
+                    view_count: item.views,
+                    thumbnail: item.thumbnail
+                }));
+        } catch (e) {
+            continue;
+        }
+    }
+    return null;
+};
+
 const search = async (query) => {
     // Check search cache
     const cacheKey = query.toLowerCase().trim();
@@ -23,36 +57,44 @@ const search = async (query) => {
     }
 
     try {
-        const output = await ytDlp(query, {
-            dumpSingleJson: true,
-            defaultSearch: 'ytsearch5',
-            flatPlaylist: true,
-            noWarnings: true,
-            preferFreeFormats: true,
-            skipDownload: true, // Ensure no download attempt
-            // Add these for speed:
-            format: 'bestaudio/best',
-            noCheckCertificate: true,
-            noPlaylist: true,
-        });
+        // 1. Try Piped API (Fast)
+        let results = await searchFromPiped(query);
 
-        let results;
-        if (output.entries) {
-            results = output.entries.map(entry => ({
-                id: entry.id,
-                title: entry.title,
-                uploader: entry.uploader,
-                duration: entry.duration,
-                view_count: entry.view_count,
-                thumbnail: entry.thumbnail || `https://i.ytimg.com/vi/${entry.id}/hqdefault.jpg`
-            }));
-        } else {
-            results = [output];
+        // 2. Fallback to yt-dlp (Slow but reliable)
+        if (!results || results.length === 0) {
+            console.log('Piped search failed, falling back to yt-dlp');
+            const output = await ytDlp(query, {
+                dumpSingleJson: true,
+                defaultSearch: 'ytsearch5',
+                flatPlaylist: true,
+                noWarnings: true,
+                preferFreeFormats: true,
+                skipDownload: true, // Ensure no download attempt
+                // Add these for speed:
+                format: 'bestaudio/best',
+                noCheckCertificate: true,
+                noPlaylist: true,
+            });
+
+            if (output.entries) {
+                results = output.entries.map(entry => ({
+                    id: entry.id,
+                    title: entry.title,
+                    uploader: entry.uploader,
+                    duration: entry.duration,
+                    view_count: entry.view_count,
+                    thumbnail: entry.thumbnail || `https://i.ytimg.com/vi/${entry.id}/hqdefault.jpg`
+                }));
+            } else {
+                results = [output];
+            }
         }
 
         // Cache the results
-        searchCache.set(cacheKey, { data: results, timestamp: Date.now() });
-        return results;
+        if (results && results.length > 0) {
+            searchCache.set(cacheKey, { data: results, timestamp: Date.now() });
+        }
+        return results || [];
     } catch (error) {
         console.error('Error searching YouTube:', error);
         throw error;
@@ -138,16 +180,15 @@ const getStreamUrl = async (videoId) => {
 };
 
 const prefetchStreamUrls = async (videoIds) => {
-    for (const id of videoIds) {
+    await Promise.all(videoIds.map(async (id) => {
         if (!streamCache.has(id)) {
             try {
-                // Sequential wait to prevent safe parallelism
                 await getStreamUrl(id);
             } catch (e) {
                 // ignore
             }
         }
-    }
+    }));
 };
 
 module.exports = { search, getStreamUrl, prefetchStreamUrls };

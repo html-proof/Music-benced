@@ -22,7 +22,7 @@ router.get('/', async (req, res) => {
 
         // Prefetch stream URLs for first 3 queue songs
         const topIds = queue.slice(0, 3).map(r => r.id).filter(Boolean);
-        youtubeService.prefetchStreamUrls(topIds);
+        youtubeService.prefetchStreamUrls(topIds).catch(err => console.error('Prefetch error:', err));
 
         res.status(200).json(queue);
     } catch (error) {
