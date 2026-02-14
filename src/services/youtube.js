@@ -137,10 +137,15 @@ const getStreamUrl = async (videoId) => {
     return result;
 };
 
-const prefetchStreamUrls = (videoIds) => {
+const prefetchStreamUrls = async (videoIds) => {
     for (const id of videoIds) {
         if (!streamCache.has(id)) {
-            getStreamUrl(id).catch(() => { });
+            try {
+                // Sequential wait to prevent safe parallelism
+                await getStreamUrl(id);
+            } catch (e) {
+                // ignore
+            }
         }
     }
 };

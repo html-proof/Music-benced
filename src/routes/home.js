@@ -38,7 +38,10 @@ router.get('/', optionalAuth, async (req, res) => {
 
         // 0. Context Helpers
         const now = new Date();
-        const hour = now.getHours();
+        // Use client-provided local hour if available, otherwise server time
+        const clientHour = req.query.localHour ? parseInt(req.query.localHour) : null;
+        const hour = (clientHour !== null && !isNaN(clientHour)) ? clientHour : now.getHours();
+
         const year = now.getFullYear();
         let timeContext = 'Late Night';
         if (hour >= 5 && hour < 12) timeContext = 'Morning';
@@ -68,25 +71,40 @@ router.get('/', optionalAuth, async (req, res) => {
         // "New Tamil music 2024"
         let query3 = hasLang ? `New ${lang} music ${year}` : `New music ${year}`;
 
-        // Run all 3 searches in parallel
-        const [madeForYou, trendingNow, recentlyPlayed] = await Promise.all([
-            youtubeService.search(query1),
-            youtubeService.search(query2),
-            youtubeService.search(query3),
-        ]);
+        // Run searches sequentially to save memory
+        const madeForYou = await youtubeService.search(query1);
+        const trendingNow = await youtubeService.search(query2);
+        const recentlyPlayed = await youtubeService.search(query3);
 
-        // Prefetch stream URLs for top results
+        // Prefetch stream URLs for top results (reduced count)
         const allIds = [
-            ...madeForYou.slice(0, 2),
-            ...trendingNow.slice(0, 2),
-            ...recentlyPlayed.slice(0, 1),
+            ...madeForYou.slice(0, 1),
+            ...trendingNow.slice(0, 1),
         ].map(r => r.id).filter(Boolean);
         youtubeService.prefetchStreamUrls(allIds);
+
+        // Titles
+        const title1 = hasLang && hasMood ? `${timeContext} ${mood1} ${lang} Vibe` :
+            hasLang ? `${timeContext} ${lang} Vibe` :
+                hasMood ? `${timeContext} ${mood1} Vibe` :
+                    `${timeContext} Vibe`;
+
+        const title2 = hasLang ? `Trending ${lang} Songs` : 'Trending Global';
+        const title3 = hasLang ? `New ${lang} Music ${year}` : `New Music ${year}`;
 
         res.status(200).json({
             madeForYou,
             trendingNow,
-            recentlyPlayed,
+            recentlyPlayed, // This is actually "New Releases" in my code logic above (query3), let's fix variable name mapping in next step or here if possible. 
+            // Wait, query3 was new releases. But response keys were madeForYou, trendingNow, recentlyPlayed.
+            // In original code: const [madeForYou, trendingNow, recentlyPlayed] = await Promise.all(...)
+            // query3 was "New Releases". So "recentlyPlayed" variable actually holds "New Releases".
+            // Let's keep keys same for now to avoid breaking too much, but enable titles.
+            titles: {
+                madeForYou: title1,
+                trendingNow: title2,
+                recentlyPlayed: title3 // This maps to the 3rd section which is New Releases
+            }
         });
     } catch (error) {
         console.error('Home Error:', error);
