@@ -49,13 +49,13 @@ class HomeContent extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildSectionTitle('Recently Played'),
+                _buildSectionTitle(homeData.recentlyPlayedTitle),
                 _buildHorizontalList(context, ref, homeData.recentlyPlayed),
                 const SizedBox(height: 20),
-                _buildSectionTitle('Made For You'),
+                _buildSectionTitle(homeData.madeForYouTitle),
                 _buildHorizontalList(context, ref, homeData.madeForYou),
                 const SizedBox(height: 20),
-                _buildSectionTitle('Trending Now'),
+                _buildSectionTitle(homeData.trendingNowTitle),
                 _buildHorizontalList(context, ref, homeData.trendingNow),
               ],
             ),
@@ -93,7 +93,8 @@ class HomeContent extends ConsumerWidget {
           final song = songs[index];
           return GestureDetector(
             onTap: () {
-              ref.read(playerProvider.notifier).playSongFromList(songs, index);
+              // Use playNewSong to start a fresh radio based on this track
+              ref.read(playerProvider.notifier).playNewSong(songs[index]);
             },
             child: Container(
               width: 140,
