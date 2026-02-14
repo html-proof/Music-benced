@@ -9,3 +9,4 @@ venv/
 
 # Local Development
 music_hub/
+node_modules/
