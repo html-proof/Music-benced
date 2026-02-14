@@ -9,6 +9,11 @@ try {
             serviceAccountStr = serviceAccountStr.substring(1, serviceAccountStr.length - 1);
         }
 
+        // Fix missing opening brace (Railway env var truncation issue)
+        if (!serviceAccountStr.startsWith('{') && serviceAccountStr.startsWith('"')) {
+            serviceAccountStr = '{' + serviceAccountStr;
+        }
+
         try {
             const serviceAccount = JSON.parse(serviceAccountStr);
             admin.initializeApp({
