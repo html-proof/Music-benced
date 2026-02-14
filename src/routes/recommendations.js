@@ -7,30 +7,40 @@ router.get('/', async (req, res) => {
     const { uid } = req.query;
 
     try {
-        let query = 'new music';
+        let query = 'popular music';
 
         if (uid) {
-            // 1. Try to get user's last played song from 'played_song'
-            const playedSnapshot = await db.ref(`users/${uid}/played_song`).limitToLast(1).once('value');
-            const playedHistory = playedSnapshot.val();
+            // 1. Read language, moods, and last played song in parallel
+            const [langSnap, moodSnap, playedSnap] = await Promise.all([
+                db.ref(`users/${uid}/language`).once('value'),
+                db.ref(`users/${uid}/moods`).once('value'),
+                db.ref(`users/${uid}/played_song`).limitToLast(1).once('value'),
+            ]);
+
+            const langVal = langSnap.val();
+            const moodVal = moodSnap.val();
+            const languages = langVal ? (Array.isArray(langVal) ? langVal : [langVal]) : [];
+            const moods = moodVal ? (Array.isArray(moodVal) ? moodVal : [moodVal]) : [];
+
+            const lang = languages.length > 0 ? languages[0] : '';
+            const mood = moods.length > 0 ? moods[0] : '';
+            const playedHistory = playedSnap.val();
 
             if (playedHistory) {
+                // 2. Base recommendations on last played song + language
                 const lastSong = Object.values(playedHistory)[0];
                 if (lastSong && lastSong.title) {
-                    query = `songs like ${lastSong.title}`;
+                    query = lang
+                        ? `${lang} songs like ${lastSong.title}`
+                        : `songs like ${lastSong.title}`;
                 }
-            } else {
-                // 2. Fallback to 'moods' if no history
-                const moodSnapshot = await db.ref(`users/${uid}/moods`).once('value');
-                const moods = moodSnapshot.val();
-                if (moods) {
-                    const moodList = Array.isArray(moods) ? moods : [moods];
-                    if (moodList.length > 0) {
-                        // Pick a random mood
-                        const randomMood = moodList[Math.floor(Math.random() * moodList.length)];
-                        query = `${randomMood} music`;
-                    }
-                }
+            } else if (lang && mood) {
+                // 3. Fallback: combine language + mood
+                query = `${mood} ${lang} songs`;
+            } else if (lang) {
+                query = `best ${lang} songs`;
+            } else if (mood) {
+                query = `${mood} songs`;
             }
         }
 
