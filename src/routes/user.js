@@ -6,6 +6,18 @@ const verifyToken = require('../middlewares/auth');
 // Apply auth middleware to all user routes
 router.use(verifyToken);
 
+// Helper to extract values from Firebase structure {id: {value: 'x', createdAt: y}}
+const extractValues = (data) => {
+    if (!data || typeof data !== 'object') return [];
+    const values = [];
+    Object.values(data).forEach(item => {
+        if (item && item.value) {
+            values.push(item.value);
+        }
+    });
+    return values;
+};
+
 // Get user profile (check onboarding status)
 router.get('/profile', async (req, res) => {
     const { uid } = req.user;
@@ -16,14 +28,14 @@ router.get('/profile', async (req, res) => {
             db.child(`users/${uid}/moods`).once('value'),
         ]);
 
-        const language = langSnap.val();
-        const moods = moodSnap.val();
-        const hasCompletedOnboarding = !!(language && moods);
+        const language = extractValues(langSnap.val());
+        const moods = extractValues(moodSnap.val());
+        const hasCompletedOnboarding = language.length > 0 && moods.length > 0;
 
         res.status(200).json({
             hasCompletedOnboarding,
-            language: language || null,
-            moods: moods || null,
+            language,
+            moods,
         });
     } catch (error) {
         console.error('Profile fetch error:', error);
@@ -46,7 +58,10 @@ router.post('/preferences', async (req, res) => {
 
 // --- New Schema Endpoints ---
 
-// Set/Update Language
+// Generate unique ID
+const generateUniqueId = () => Math.random().toString(36).substring(2, 14);
+
+// Set/Update Language - Save with unique IDs
 router.post('/language', async (req, res) => {
     const { uid } = req.user;
     const { language } = req.body; // Expects string or array of strings
@@ -56,14 +71,27 @@ router.post('/language', async (req, res) => {
     }
 
     try {
-        await db.child(`users/${uid}/language`).set(language);
+        const languages = Array.isArray(language) ? language : [language];
+        
+        // Remove existing languages
+        await db.child(`users/${uid}/language`).remove();
+        
+        // Add each language with unique ID
+        for (const lang of languages) {
+            const langId = generateUniqueId();
+            await db.child(`users/${uid}/language/${langId}`).set({
+                value: lang,
+                createdAt: Date.now()
+            });
+        }
+        
         res.status(200).json({ message: 'Language updated' });
     } catch (error) {
         res.status(500).json({ error: 'Failed to update language' });
     }
 });
 
-// Set/Update Moods
+// Set/Update Moods - Save with unique IDs
 router.post('/moods', async (req, res) => {
     const { uid } = req.user;
     const { moods } = req.body; // Expects string or array of strings
@@ -73,7 +101,20 @@ router.post('/moods', async (req, res) => {
     }
 
     try {
-        await db.child(`users/${uid}/moods`).set(moods);
+        const moodList = Array.isArray(moods) ? moods : [moods];
+        
+        // Remove existing moods
+        await db.child(`users/${uid}/moods`).remove();
+        
+        // Add each mood with unique ID
+        for (const mood of moodList) {
+            const moodId = generateUniqueId();
+            await db.child(`users/${uid}/moods/${moodId}`).set({
+                value: mood,
+                createdAt: Date.now()
+            });
+        }
+        
         res.status(200).json({ message: 'Moods updated' });
     } catch (error) {
         res.status(500).json({ error: 'Failed to update moods' });
