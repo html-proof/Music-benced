@@ -19,22 +19,16 @@ router.get('/', async (req, res) => {
         if (streamData && streamData.url) {
             console.log(`[Stream] Success for ${videoId}: ${streamData.url.substring(0, 50)}...`);
             
-            // If useProxy is true, return proxy URL instead of direct URL
-            if (useProxy === 'true') {
-                const protocol = req.protocol;
-                const host = req.get('host');
-                const proxyUrl = `${protocol}://${host}/stream/proxy?videoId=${videoId}&quality=${qualitySetting}`;
-                return res.status(200).json({ 
-                    ...streamData, 
-                    url: proxyUrl,
-                    quality: qualitySetting 
-                });
-            }
+            // Always use proxy URL because direct YouTube URLs are IP-specific and expire
+            // The mobile phone has a different IP than Railway server, so direct URLs won't work
+            const protocol = req.protocol;
+            const host = req.get('host');
+            const proxyUrl = `${protocol}://${host}/stream/proxy?videoId=${videoId}&quality=${qualitySetting}`;
             
-            // Return DIRECT stream URL (not proxy) - much faster for streaming
-            res.status(200).json({ 
+            console.log(`[Stream] Returning proxy URL for ${videoId}`);
+            return res.status(200).json({ 
                 ...streamData, 
-                url: streamData.url,
+                url: proxyUrl,
                 quality: qualitySetting 
             });
         } else {
