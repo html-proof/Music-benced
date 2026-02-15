@@ -8,7 +8,9 @@ const CACHE_TTL = 30 * 60 * 1000;
 const PIPED_INSTANCES = [
     'https://pipedapi.kavin.rocks',
     'https://pipedapi.r4fo.com',
-    'https://pipedapi.adminforge.de',
+    'https://api.piped.yt',
+    'https://pipedapi.moomoo.me',
+    'https://pipedapi-lunar.onrender.com',
 ];
 
 // In-memory cache for search results (10 min TTL)
