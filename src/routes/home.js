@@ -7,13 +7,6 @@ const { db, auth } = require('../config/firebase');
 const homeCache = new Map();
 const HOME_CACHE_TTL = 10 * 60 * 1000;
 
-// Default/fallback data
-const DEFAULT_SONGS = [
-    { id: 'dQw4w9WgXcQ', title: 'Never Gonna Give You Up', artist: 'Rick Astley', duration: 213, thumbnail: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg', type: 'song' },
-    { id: '9bZkp7q19f0', title: 'Gangnam Style', artist: 'PSY', duration: 252, thumbnail: 'https://i.ytimg.com/vi/9bZkp7q19f0/hqdefault.jpg', type: 'song' },
-    { id: 'kJQP7kiw5Fk', title: 'Despacito', artist: 'Luis Fonsi', duration: 282, thumbnail: 'https://i.ytimg.com/vi/kJQP7kiw5Fk/hqdefault.jpg', type: 'song' },
-];
-
 // Optional auth — works for both logged-in and anonymous users
 const optionalAuth = async (req, res, next) => {
     const authHeader = req.headers.authorization;
@@ -29,28 +22,42 @@ const optionalAuth = async (req, res, next) => {
     next();
 };
 
-// FAST: Get user prefs from Firebase
+// Helper to extract values from Firebase structure {id: {value: 'x', createdAt: y}}
+const extractValues = (data) => {
+    if (!data || typeof data !== 'object') return [];
+    const values = [];
+    Object.values(data).forEach(item => {
+        if (item && item.value) {
+            values.push(item.value);
+        }
+    });
+    return values;
+};
+
+// Get user preferences from Firebase (language and moods from unique ID structure)
 const getUserPrefs = async (uid) => {
-    if (!uid) return { languages: [], moods: [] };
+    if (!uid) return { languages: [], moods: [], cacheKey: 'anonymous' };
     try {
         const [langSnap, moodSnap] = await Promise.all([
             db.child(`users/${uid}/language`).once('value'),
             db.child(`users/${uid}/moods`).once('value'),
         ]);
-        let languages = langSnap.val() || [];
-        let moods = moodSnap.val() || [];
-        if (!Array.isArray(languages)) languages = [languages];
-        if (!Array.isArray(moods)) moods = [moods];
-        return { languages, moods };
+        
+        const languages = extractValues(langSnap.val());
+        const moods = extractValues(moodSnap.val());
+        
+        return { 
+            languages, 
+            moods, 
+            cacheKey: `${uid}_${languages.join(',')}_${moods.join(',')}` 
+        };
     } catch (e) {
-        return { languages: [], moods: [] };
+        console.error('Error fetching user prefs:', e);
+        return { languages: [], moods: [], cacheKey: uid || 'anonymous' };
     }
 };
 
-// FAST: Get cache key
-const getCacheKey = (languages, moods) => `${languages.join(',')}_${moods.join(',')}`;
-
-// FAST: Build queries
+// Build personalized queries based on language and mood
 const buildQueries = (languages, moods, hour) => {
     const year = new Date().getFullYear();
     let timeContext = 'Night';
@@ -63,28 +70,32 @@ const buildQueries = (languages, moods, hour) => {
     const lang = hasLang ? languages[0] : '';
     const mood = hasMood ? moods[0] : '';
 
-    // Build just 2 queries max
+    // Build queries based on user preferences
     const queries = [];
     
-    // Query 1: Personalized
     if (hasLang && hasMood) {
+        // Both language and mood available
         queries.push(`${timeContext} ${mood} ${lang} songs`);
+        queries.push(`Top ${lang} songs ${year}`);
     } else if (hasLang) {
-        queries.push(`Top ${lang} songs`);
+        // Only language
+        queries.push(`${timeContext} ${lang} songs`);
+        queries.push(`New ${lang} music ${year}`);
     } else if (hasMood) {
-        queries.push(`${mood} songs`);
+        // Only mood
+        queries.push(`${mood} ${timeContext} songs`);
+        queries.push(`${mood} music playlist`);
     } else {
-        queries.push('Top trending songs');
+        // No preferences - generic trending
+        queries.push('Top trending songs 2026');
+        queries.push('Viral songs 2026');
     }
-    
-    // Query 2: Trending
-    queries.push(hasLang ? `New ${lang} music ${year}` : `Top songs ${year}`);
 
     return { queries, timeContext, lang, mood, hasLang, hasMood };
 };
 
-// FAST: Search with timeout
-const searchWithTimeout = async (query, userContext, timeoutMs = 3000) => {
+// Search with short timeout
+const searchWithTimeout = async (query, userContext, timeoutMs = 5000) => {
     return Promise.race([
         youtubeService.search(query, userContext),
         new Promise((_, reject) => 
@@ -93,65 +104,75 @@ const searchWithTimeout = async (query, userContext, timeoutMs = 3000) => {
     ]);
 };
 
-// Single endpoint - OPTIMIZED for speed
+// Main endpoint - ALWAYS based on real-time database preferences
 router.get('/', optionalAuth, async (req, res) => {
     const startTime = Date.now();
     
     try {
-        // 1. Get user prefs (fast)
-        const { languages, moods } = await getUserPrefs(req.user?.uid);
+        // 1. Get user preferences from Firebase (ALWAYS - no defaults)
+        const { languages, moods, cacheKey } = await getUserPrefs(req.user?.uid);
         
-        // 2. Check cache IMMEDIATELY (very fast)
-        const cacheKey = getCacheKey(languages, moods);
+        console.log(`User ${req.user?.uid || 'anonymous'} - Languages: ${languages.join(', ')}, Moods: ${moods.join(', ')}`);
+        
+        // 2. Check cache
         const cached = homeCache.get(cacheKey);
         const hasValidCache = cached && (Date.now() - cached.timestamp < HOME_CACHE_TTL);
         
-        // If cache exists, return it immediately (under 100ms)
         if (hasValidCache) {
             console.log(`Home served from cache in ${Date.now() - startTime}ms`);
             return res.status(200).json(cached.data);
         }
         
-        // 3. If no cache, build response quickly
+        // 3. Build personalized queries based on REAL database values
         const hour = req.query.localHour ? parseInt(req.query.localHour) : new Date().getHours();
         const { queries, timeContext, lang, mood, hasLang, hasMood } = buildQueries(languages, moods, hour);
         
-        // 4. Search with 3 second timeout (parallel)
-        let results1, results2;
+        console.log(`Searching: ${queries.join(' | ')}`);
+        
+        // 4. Parallel searches with timeout
+        let results1 = [], results2 = [];
         try {
             [results1, results2] = await Promise.all([
-                searchWithTimeout(queries[0], { language: lang, mood: mood }, 3000),
-                searchWithTimeout(queries[1], { language: lang, mood: mood }, 3000)
+                searchWithTimeout(queries[0], { language: lang, mood: mood }, 5000),
+                searchWithTimeout(queries[1], { language: lang, mood: mood }, 5000)
             ]);
         } catch (e) {
-            console.log('Search timeout or error, using defaults');
-            results1 = DEFAULT_SONGS;
-            results2 = DEFAULT_SONGS;
+            console.error('Search error:', e.message);
+            // On error, return empty but don't crash
+            results1 = results1 || [];
+            results2 = results2 || [];
         }
         
-        // 5. Build response (limit to 8 items for speed)
+        // 5. Build response with REAL search results only (no defaults)
         const response = {
-            madeForYou: (results1 || []).slice(0, 8),
-            trendingNow: (results2 || []).slice(0, 8),
-            recentlyPlayed: (results1 || []).slice(0, 8), // Reuse results1
+            madeForYou: (results1 || []).slice(0, 10),
+            trendingNow: (results2 || []).slice(0, 10),
+            recentlyPlayed: (results1 || []).slice(0, 10),
             titles: {
                 madeForYou: hasLang && hasMood ? `${timeContext} ${mood} ${lang}` :
-                    hasLang ? `Top ${lang}` : hasMood ? `${mood} Vibes` : 'Made For You',
+                    hasLang ? `${timeContext} ${lang}` : 
+                    hasMood ? `${mood} Vibes` : 
+                    'Made For You',
                 trendingNow: hasLang ? `Trending ${lang}` : 'Trending Now',
                 recentlyPlayed: 'Recently Played'
+            },
+            userPrefs: {
+                languages,
+                moods,
+                hasPreferences: hasLang || hasMood
             }
         };
         
-        // 6. Cache for next time
+        // 6. Cache response
         homeCache.set(cacheKey, { data: response, timestamp: Date.now() });
         
-        console.log(`Home generated in ${Date.now() - startTime}ms`);
+        console.log(`Home generated in ${Date.now() - startTime}ms with ${response.madeForYou.length} + ${response.trendingNow.length} songs`);
         res.status(200).json(response);
         
-        // 7. Background: Prefetch streams (don't await)
+        // 7. Background prefetch
         const idsToPrefetch = [
-            ...response.madeForYou.slice(0, 2),
-            ...response.trendingNow.slice(0, 2)
+            ...response.madeForYou.slice(0, 3),
+            ...response.trendingNow.slice(0, 3)
         ].map(r => r.id).filter(Boolean);
         
         if (idsToPrefetch.length > 0) {
@@ -160,16 +181,9 @@ router.get('/', optionalAuth, async (req, res) => {
         
     } catch (error) {
         console.error('Home Error:', error);
-        // Return default data on error (fast fallback)
-        res.status(200).json({
-            madeForYou: DEFAULT_SONGS,
-            trendingNow: DEFAULT_SONGS,
-            recentlyPlayed: DEFAULT_SONGS,
-            titles: {
-                madeForYou: 'Made For You',
-                trendingNow: 'Trending Now',
-                recentlyPlayed: 'Recently Played'
-            }
+        res.status(500).json({ 
+            error: 'Failed to load home',
+            message: error.message 
         });
     }
 });
