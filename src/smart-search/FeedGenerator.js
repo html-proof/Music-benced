@@ -164,18 +164,14 @@ class FeedGenerator {
       ]);
 
       // Build feed object (Req 4.1-4.6)
-      const feed = {};
-
-      // Only include Continue Playing if there are recently played songs (Req 4.7)
-      if (continuePlaying.length > 0) {
-        feed.continuePlaying = continuePlaying;
-      }
-
-      feed.basedOnMood = basedOnMood;
-      feed.trendingInLanguage = trendingInLanguage;
-      feed.recommendedForYou = recommendedForYou;
-      feed.recentlyPlayed = recentlyPlayed;
-      feed.newReleases = newReleases;
+      const feed = {
+        continuePlaying: continuePlaying || [],
+        basedOnMood: basedOnMood || [],
+        trendingInLanguage: trendingInLanguage || [],
+        recommendedForYou: recommendedForYou || [],
+        recentlyPlayed: recentlyPlayed || [],
+        newReleases: newReleases || []
+      };
 
       return feed;
     } catch (error) {
