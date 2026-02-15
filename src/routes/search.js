@@ -1,23 +1,20 @@
 const express = require('express');
 const { db } = require('../config/firebase');
 const { SmartSearchSystem } = require('../smart-search');
+const youtubeService = require('../services/youtube');
 
 const router = express.Router();
 
 /**
  * GET /api/search
- * Search for songs
+ * Search for songs from YouTube
  * 
  * Query params:
  * - q: Search query (required)
- * - languages: Comma-separated list of languages (optional, for boosting only)
- * - language: Single language (optional, for boosting only)
- * - moods: Comma-separated list of moods (optional, for boosting only)
- * - mood: Single mood (optional, for boosting only)
  */
 router.get('/', async (req, res) => {
   try {
-    const { q, languages, language, moods, mood } = req.query;
+    const { q } = req.query;
     
     if (!q || q.trim() === '') {
       return res.status(400).json({
@@ -26,37 +23,13 @@ router.get('/', async (req, res) => {
       });
     }
     
-    // Get user ID from authentication (or use anonymous)
-    const userId = req.user?.id || 'anonymous';
+    // Search YouTube directly for all songs
+    const results = await youtubeService.search(q);
     
-    // Initialize smart search system
-    const smartSearch = new SmartSearchSystem(db, userId);
-    
-    // User preferences (optional - only used for boosting scores)
-    const userPreferences = {};
-    
-    // Handle multiple languages
-    if (languages) {
-      userPreferences.languages = languages.split(',').map(l => l.trim());
-    } else if (language) {
-      userPreferences.languages = [language];
-    }
-    
-    // Handle multiple moods
-    if (moods) {
-      userPreferences.moods = moods.split(',').map(m => m.trim());
-    } else if (mood) {
-      userPreferences.moods = [mood];
-    }
-    
-    // Perform search (searches ALL songs, preferences only boost scores)
-    const results = await smartSearch.search(q, userPreferences);
-    
-    // Return results
+    // Return results in the format expected by Flutter
     res.json({
       success: true,
       query: q,
-      preferences: userPreferences,
       count: results.length,
       results: results
     });
