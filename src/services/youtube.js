@@ -8,9 +8,10 @@ const CACHE_TTL = 30 * 60 * 1000;
 const PIPED_INSTANCES = [
     'https://pipedapi.kavin.rocks',
     'https://pipedapi.r4fo.com',
-    'https://api.piped.yt',
+    'https://pipedapi.adminforge.de',
     'https://pipedapi.moomoo.me',
-    'https://pipedapi-lunar.onrender.com',
+    'https://api.piped.projectsegfault.com',
+    'https://pipedapi.leptons.xyz',
 ];
 
 // In-memory cache for search results (10 min TTL)
@@ -18,23 +19,38 @@ const searchCache = new Map();
 const SEARCH_CACHE_TTL = 10 * 60 * 1000;
 
 const searchFromPiped = async (query) => {
-    for (const instance of PIPED_INSTANCES) {
+    for (let i = 0; i < PIPED_INSTANCES.length; i++) {
+        const instance = PIPED_INSTANCES[i];
         try {
+            console.log(`[Piped Search] Trying instance ${i + 1}/${PIPED_INSTANCES.length}: ${instance}`);
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 3000);
+            const timeout = setTimeout(() => controller.abort(), 8000);
 
-            const res = await fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=music_songs`, {
+            // Remove music_songs filter - it's too restrictive
+            const searchUrl = `${instance}/search?q=${encodeURIComponent(query)}`;
+            console.log(`[Piped Search] URL: ${searchUrl}`);
+            
+            const res = await fetch(searchUrl, {
                 signal: controller.signal
             });
             clearTimeout(timeout);
 
-            if (!res.ok) continue;
+            if (!res.ok) {
+                console.log(`[Piped Search] Instance ${instance} returned ${res.status}`);
+                continue;
+            }
+            
             const data = await res.json();
 
-            if (!data.items) continue;
+            if (!data.items || data.items.length === 0) {
+                console.log(`[Piped Search] Instance ${instance} returned no items`);
+                continue;
+            }
+
+            console.log(`[Piped Search] Instance ${instance} returned ${data.items.length} items`);
 
             // Map Piped items to our format
-            return data.items
+            const results = data.items
                 .filter(item => item.type === 'stream')
                 .map(item => ({
                     id: item.url.split('/watch?v=')[1],
@@ -44,10 +60,18 @@ const searchFromPiped = async (query) => {
                     view_count: item.views,
                     thumbnail: item.thumbnail
                 }));
+            
+            console.log(`[Piped Search] Filtered to ${results.length} stream items`);
+            
+            if (results.length > 0) {
+                return results;
+            }
         } catch (e) {
+            console.log(`[Piped Search] Instance ${instance} error: ${e.message}`);
             continue;
         }
     }
+    console.log('[Piped Search] All instances failed');
     return null;
 };
 
