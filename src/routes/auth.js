@@ -14,7 +14,7 @@ router.post('/google', async (req, res) => {
     try {
         const decodedToken = await auth.verifyIdToken(token);
         const uid = decodedToken.uid;
-        const userRef = db.ref(`users/${uid}`);
+        const userRef = db.child(`users/${uid}`);
 
         // Check if user exists
         const snapshot = await userRef.once('value');

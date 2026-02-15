@@ -27,8 +27,8 @@ router.get('/', optionalAuth, async (req, res) => {
         // Read user's preferences from Firebase
         if (req.user && req.user.uid) {
             const [langSnap, moodSnap] = await Promise.all([
-                db.ref(`users/${req.user.uid}/language`).once('value'),
-                db.ref(`users/${req.user.uid}/moods`).once('value'),
+                db.child(`users/${req.user.uid}/language`).once('value'),
+                db.child(`users/${req.user.uid}/moods`).once('value'),
             ]);
             languages = langSnap.val() || [];
             moods = moodSnap.val() || [];

@@ -15,7 +15,7 @@ router.post('/create', async (req, res) => {
     }
 
     try {
-        const newPlaylistRef = db.ref(`users/${uid}/playlists`).push();
+        const newPlaylistRef = db.child(`users/${uid}/playlists`).push();
         await newPlaylistRef.set({
             id: newPlaylistRef.key,
             name,
@@ -39,7 +39,7 @@ router.post('/add', async (req, res) => {
     }
 
     try {
-        await db.ref(`users/${uid}/playlists/${playlistId}/songs/${song.id}`).set(song);
+        await db.child(`users/${uid}/playlists/${playlistId}/songs/${song.id}`).set(song);
         res.status(200).json({ message: 'Song added to playlist' });
     } catch (error) {
         res.status(500).json({ error: 'Failed to add song' });
@@ -56,7 +56,7 @@ router.post('/remove', async (req, res) => {
     }
 
     try {
-        await db.ref(`users/${uid}/playlists/${playlistId}/songs/${songId}`).remove();
+        await db.child(`users/${uid}/playlists/${playlistId}/songs/${songId}`).remove();
         res.status(200).json({ message: 'Song removed from playlist' });
     } catch (error) {
         res.status(500).json({ error: 'Failed to remove song' });
@@ -68,7 +68,7 @@ router.get('/list', async (req, res) => {
     const { uid } = req.user;
 
     try {
-        const snapshot = await db.ref(`users/${uid}/playlists`).once('value');
+        const snapshot = await db.child(`users/${uid}/playlists`).once('value');
         const playlists = snapshot.val() || {};
         const playlistsList = Object.values(playlists).map(p => ({
             ...p,
@@ -86,7 +86,7 @@ router.get('/:id', async (req, res) => {
     const { id } = req.params;
 
     try {
-        const snapshot = await db.ref(`users/${uid}/playlists/${id}`).once('value');
+        const snapshot = await db.child(`users/${uid}/playlists/${id}`).once('value');
         const playlist = snapshot.val();
 
         if (!playlist) {

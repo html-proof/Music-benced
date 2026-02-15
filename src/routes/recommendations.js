@@ -13,9 +13,9 @@ router.get('/', async (req, res) => {
         if (uid) {
             // 1. Read language, moods, and last played song in parallel
             const [langSnap, moodSnap, playedSnap] = await Promise.all([
-                db.ref(`users/${uid}/language`).once('value'),
-                db.ref(`users/${uid}/moods`).once('value'),
-                db.ref(`users/${uid}/played_song`).limitToLast(1).once('value'),
+                db.child(`users/${uid}/language`).once('value'),
+                db.child(`users/${uid}/moods`).once('value'),
+                db.child(`users/${uid}/played_song`).limitToLast(1).once('value'),
             ]);
 
             const langVal = langSnap.val();

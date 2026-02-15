@@ -12,8 +12,8 @@ router.get('/profile', async (req, res) => {
 
     try {
         const [langSnap, moodSnap] = await Promise.all([
-            db.ref(`users/${uid}/language`).once('value'),
-            db.ref(`users/${uid}/moods`).once('value'),
+            db.child(`users/${uid}/language`).once('value'),
+            db.child(`users/${uid}/moods`).once('value'),
         ]);
 
         const language = langSnap.val();
@@ -37,7 +37,7 @@ router.post('/preferences', async (req, res) => {
     const preferences = req.body;
 
     try {
-        await db.ref(`users/${uid}/preferences`).update(preferences);
+        await db.child(`users/${uid}/preferences`).update(preferences);
         res.status(200).json({ message: 'Preferences updated' });
     } catch (error) {
         res.status(500).json({ error: 'Failed to update preferences' });
@@ -56,7 +56,7 @@ router.post('/language', async (req, res) => {
     }
 
     try {
-        await db.ref(`users/${uid}/language`).set(language);
+        await db.child(`users/${uid}/language`).set(language);
         res.status(200).json({ message: 'Language updated' });
     } catch (error) {
         res.status(500).json({ error: 'Failed to update language' });
@@ -73,7 +73,7 @@ router.post('/moods', async (req, res) => {
     }
 
     try {
-        await db.ref(`users/${uid}/moods`).set(moods);
+        await db.child(`users/${uid}/moods`).set(moods);
         res.status(200).json({ message: 'Moods updated' });
     } catch (error) {
         res.status(500).json({ error: 'Failed to update moods' });
@@ -90,7 +90,7 @@ router.post('/search', async (req, res) => {
     }
 
     try {
-        const newSearchRef = db.ref(`users/${uid}/search`).push();
+        const newSearchRef = db.child(`users/${uid}/search`).push();
         await newSearchRef.set({
             id: newSearchRef.key,
             query,
@@ -106,7 +106,7 @@ router.post('/search', async (req, res) => {
 router.get('/search', async (req, res) => {
     const { uid } = req.user;
     try {
-        const snapshot = await db.ref(`users/${uid}/search`).limitToLast(20).once('value');
+        const snapshot = await db.child(`users/${uid}/search`).limitToLast(20).once('value');
         const searches = snapshot.val() || {};
         res.status(200).json(Object.values(searches).reverse());
     } catch (error) {
@@ -127,7 +127,7 @@ router.post('/current', async (req, res) => {
         // current_song is a single object, not a list, but user requested unique ID structure.
         // Usually current song is just ONE song.
         // We will replace the node content.
-        await db.ref(`users/${uid}/current_song`).set({
+        await db.child(`users/${uid}/current_song`).set({
             ...song,
             timestamp: new Date().toISOString()
         });
@@ -147,7 +147,7 @@ router.post('/played', async (req, res) => {
     }
 
     try {
-        const newPlayedRef = db.ref(`users/${uid}/played_song`).push();
+        const newPlayedRef = db.child(`users/${uid}/played_song`).push();
         await newPlayedRef.set({
             ...song,
             dbId: newPlayedRef.key, // Unique ID for this specific play instance
@@ -163,7 +163,7 @@ router.post('/played', async (req, res) => {
 router.get('/played', async (req, res) => {
     const { uid } = req.user;
     try {
-        const snapshot = await db.ref(`users/${uid}/played_song`).limitToLast(50).once('value');
+        const snapshot = await db.child(`users/${uid}/played_song`).limitToLast(50).once('value');
         const history = snapshot.val() || {};
         res.status(200).json(Object.values(history).reverse());
     } catch (error) {
@@ -181,7 +181,7 @@ router.post('/next', async (req, res) => {
     }
 
     try {
-        const newNextRef = db.ref(`users/${uid}/next_song`).push();
+        const newNextRef = db.child(`users/${uid}/next_song`).push();
         await newNextRef.set({
             ...song,
             dbId: newNextRef.key,
@@ -197,7 +197,7 @@ router.post('/next', async (req, res) => {
 router.get('/next', async (req, res) => {
     const { uid } = req.user;
     try {
-        const snapshot = await db.ref(`users/${uid}/next_song`).once('value');
+        const snapshot = await db.child(`users/${uid}/next_song`).once('value');
         const queue = snapshot.val() || {};
         res.status(200).json(Object.values(queue));
     } catch (error) {
@@ -210,7 +210,7 @@ router.get('/next', async (req, res) => {
 router.delete('/next', async (req, res) => {
     const { uid } = req.user;
     try {
-        await db.ref(`users/${uid}/next_song`).remove();
+        await db.child(`users/${uid}/next_song`).remove();
         res.status(200).json({ message: 'Queue cleared' });
     } catch (error) {
         res.status(500).json({ error: 'Failed to clear queue' });
@@ -229,7 +229,7 @@ router.post('/like', async (req, res) => {
     }
 
     try {
-        await db.ref(`users/${uid}/likes/${song.id}`).set(song);
+        await db.child(`users/${uid}/likes/${song.id}`).set(song);
         res.status(200).json({ message: 'Song liked' });
     } catch (error) {
         res.status(500).json({ error: 'Failed to like song' });
@@ -246,7 +246,7 @@ router.post('/unlike', async (req, res) => {
     }
 
     try {
-        await db.ref(`users/${uid}/likes/${songId}`).remove();
+        await db.child(`users/${uid}/likes/${songId}`).remove();
         res.status(200).json({ message: 'Song unliked' });
     } catch (error) {
         res.status(500).json({ error: 'Failed to unlike song' });
@@ -258,7 +258,7 @@ router.get('/likes', async (req, res) => {
     const { uid } = req.user;
 
     try {
-        const snapshot = await db.ref(`users/${uid}/likes`).once('value');
+        const snapshot = await db.child(`users/${uid}/likes`).once('value');
         const likes = snapshot.val() || {};
         res.status(200).json(Object.values(likes));
     } catch (error) {
