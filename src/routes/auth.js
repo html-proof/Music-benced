@@ -30,7 +30,10 @@ router.post('/google', async (req, res) => {
                 preferences: {
                     theme: 'dark',
                     autoPlay: true,
-                    audioQuality: 'high'
+                    audioQuality: 'high',
+                    dataUsageMode: 'normal',
+                    wifiOnlyDownloads: true,
+                    cacheEnabled: true,
                 }
             });
         } else {

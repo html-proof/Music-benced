@@ -2,6 +2,16 @@ const express = require('express');
 const router = express.Router();
 const youtubeService = require('../services/youtube');
 
+const ALLOWED_QUALITIES = new Set(['extreme', 'low', 'medium', 'high']);
+
+const normalizeQuality = (quality) => {
+    const q = String(quality || 'high').toLowerCase();
+    if (ALLOWED_QUALITIES.has(q)) {
+        return q;
+    }
+    return 'high';
+};
+
 router.get('/', async (req, res) => {
     const { videoId, quality, useProxy } = req.query;
 
@@ -9,8 +19,8 @@ router.get('/', async (req, res) => {
         return res.status(400).json({ error: 'Missing videoId' });
     }
 
-    // Quality: 'low' (64k), 'medium' (128k), 'high' (256k+)
-    const qualitySetting = quality || 'high';
+    // Quality: 'extreme' (<=64k), 'low' (<=96k), 'medium' (<=128k), 'high' (best available)
+    const qualitySetting = normalizeQuality(quality);
 
     try {
         console.log(`[Stream] Getting stream for ${videoId} with quality ${qualitySetting}`);
@@ -51,7 +61,7 @@ router.get('/proxy', async (req, res) => {
 
     try {
         console.log(`[Proxy] Proxying stream for ${videoId}`);
-        const streamData = await youtubeService.getStreamUrl(videoId, quality || 'low');
+        const streamData = await youtubeService.getStreamUrl(videoId, normalizeQuality(quality || 'low'));
         
         if (!streamData || !streamData.url) {
             return res.status(500).json({ error: 'No audio URL found' });

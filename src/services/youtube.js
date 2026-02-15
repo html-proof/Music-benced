@@ -18,6 +18,58 @@ const PIPED_INSTANCES = [
 const searchCache = new Map();
 const SEARCH_CACHE_TTL = 10 * 60 * 1000;
 
+const QUALITY_PRESETS = {
+    extreme: { maxBitrate: 64000, ytDlpAbr: 64 },
+    low: { maxBitrate: 96000, ytDlpAbr: 96 },
+    medium: { maxBitrate: 128000, ytDlpAbr: 128 },
+    high: { maxBitrate: Infinity, ytDlpAbr: null },
+};
+
+const normalizeQuality = (quality = 'high') => {
+    const q = String(quality || 'high').toLowerCase();
+    if (q === 'ultra' || q === 'data_saver' || q === 'datasaver') return 'extreme';
+    if (q === 'extreme' || q === 'low' || q === 'medium' || q === 'high') return q;
+    return 'high';
+};
+
+const selectAudioStreamByQuality = (audioStreams, quality) => {
+    const validAudioStreams = (audioStreams || [])
+        .filter(s => s && s.url && s.mimeType && s.mimeType.startsWith('audio/'));
+
+    if (validAudioStreams.length === 0) {
+        return null;
+    }
+
+    const normalizedQuality = normalizeQuality(quality);
+    const preset = QUALITY_PRESETS[normalizedQuality] || QUALITY_PRESETS.high;
+
+    if (!Number.isFinite(preset.maxBitrate)) {
+        return validAudioStreams
+            .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
+    }
+
+    const withinCap = validAudioStreams
+        .filter(s => (s.bitrate || Number.MAX_SAFE_INTEGER) <= preset.maxBitrate)
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+
+    if (withinCap.length > 0) {
+        return withinCap[0];
+    }
+
+    // If the source doesn't have streams under our cap, use the lightest stream available.
+    return validAudioStreams
+        .sort((a, b) => (a.bitrate || Number.MAX_SAFE_INTEGER) - (b.bitrate || Number.MAX_SAFE_INTEGER))[0];
+};
+
+const getYtDlpFormatForQuality = (quality) => {
+    const normalizedQuality = normalizeQuality(quality);
+    const preset = QUALITY_PRESETS[normalizedQuality] || QUALITY_PRESETS.high;
+    if (!preset.ytDlpAbr) {
+        return 'bestaudio/best';
+    }
+    return `bestaudio[abr<=${preset.ytDlpAbr}]/bestaudio/best`;
+};
+
 const searchFromPiped = async (query) => {
     for (let i = 0; i < PIPED_INSTANCES.length; i++) {
         const instance = PIPED_INSTANCES[i];
@@ -414,7 +466,8 @@ const search = async (query, userContext = {}) => {
 
 // Fast: Piped API (~500ms, non-IP-locked URLs)
 const getStreamUrlFromPiped = async (videoId, quality = 'high') => {
-    console.log(`[Piped] Trying to get stream for ${videoId} with quality ${quality}`);
+    const normalizedQuality = normalizeQuality(quality);
+    console.log(`[Piped] Trying to get stream for ${videoId} with quality ${normalizedQuality}`);
     
     for (let i = 0; i < PIPED_INSTANCES.length; i++) {
         const instance = PIPED_INSTANCES[i];
@@ -450,19 +503,7 @@ const getStreamUrlFromPiped = async (videoId, quality = 'high') => {
                 continue;
             }
 
-            // Pick best audio stream based on quality preference
-            let best;
-            if (quality === 'low') {
-                // Pick lowest bitrate for slow connections
-                best = audioStreams
-                    .filter(s => s.mimeType && s.mimeType.startsWith('audio/'))
-                    .sort((a, b) => (a.bitrate || 0) - (b.bitrate || 0))[0];
-            } else {
-                // Pick highest bitrate
-                best = audioStreams
-                    .filter(s => s.mimeType && s.mimeType.startsWith('audio/'))
-                    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
-            }
+            const best = selectAudioStreamByQuality(audioStreams, normalizedQuality);
 
             if (best && best.url) {
                 console.log(`[Piped] Success! Got stream with bitrate ${best.bitrate} from ${instance}`);
@@ -472,6 +513,7 @@ const getStreamUrlFromPiped = async (videoId, quality = 'high') => {
                     duration: data.duration,
                     thumbnail: data.thumbnailUrl,
                     bitrate: best.bitrate || 0,
+                    quality: normalizedQuality,
                 };
             }
         } catch (e) {
@@ -485,12 +527,13 @@ const getStreamUrlFromPiped = async (videoId, quality = 'high') => {
 };
 
 // Slow fallback: yt-dlp (2-5s)
-const getStreamUrlFromYtDlp = async (videoId) => {
+const getStreamUrlFromYtDlp = async (videoId, quality = 'high') => {
+    const normalizedQuality = normalizeQuality(quality);
     const cookiePath = writeCookiesFile();
     const args = {
         dumpSingleJson: true,
         noWarnings: true,
-        format: 'bestaudio/best',
+        format: getYtDlpFormatForQuality(normalizedQuality),
         noCheckCertificates: true,
         extractorArgs: 'youtube:player_client=android',
     };
@@ -506,14 +549,17 @@ const getStreamUrlFromYtDlp = async (videoId) => {
         title: output.title,
         duration: output.duration,
         thumbnail: output.thumbnail,
+        bitrate: output.abr ? Number(output.abr) * 1000 : 0,
+        quality: normalizedQuality,
     };
 };
 
 const getStreamUrl = async (videoId, quality = 'high') => {
-    console.log(`[getStreamUrl] Starting for ${videoId}, quality: ${quality}`);
+    const normalizedQuality = normalizeQuality(quality);
+    console.log(`[getStreamUrl] Starting for ${videoId}, quality: ${normalizedQuality}`);
     
     // 1. Check cache (include quality in cache key)
-    const cacheKey = `${videoId}_${quality}`;
+    const cacheKey = `${videoId}_${normalizedQuality}`;
     const cached = streamCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
         console.log(`[getStreamUrl] Returning cached result for ${videoId}`);
@@ -522,13 +568,13 @@ const getStreamUrl = async (videoId, quality = 'high') => {
 
     // 2. Try Piped (fast)
     console.log(`[getStreamUrl] Trying Piped for ${videoId}`);
-    let result = await getStreamUrlFromPiped(videoId, quality);
+    let result = await getStreamUrlFromPiped(videoId, normalizedQuality);
 
     // 3. Fallback to yt-dlp
     if (!result) {
         console.log(`[getStreamUrl] Piped failed, trying yt-dlp fallback for ${videoId}`);
         try {
-            result = await getStreamUrlFromYtDlp(videoId);
+            result = await getStreamUrlFromYtDlp(videoId, normalizedQuality);
             console.log(`[getStreamUrl] yt-dlp succeeded for ${videoId}`);
         } catch (ytDlpError) {
             console.error(`[getStreamUrl] yt-dlp also failed for ${videoId}:`, ytDlpError.message);
@@ -548,11 +594,13 @@ const getStreamUrl = async (videoId, quality = 'high') => {
     return result;
 };
 
-const prefetchStreamUrls = async (videoIds) => {
+const prefetchStreamUrls = async (videoIds, quality = 'high') => {
+    const normalizedQuality = normalizeQuality(quality);
     await Promise.all(videoIds.map(async (id) => {
-        if (!streamCache.has(id)) {
+        const cacheKey = `${id}_${normalizedQuality}`;
+        if (!streamCache.has(cacheKey)) {
             try {
-                await getStreamUrl(id);
+                await getStreamUrl(id, normalizedQuality);
             } catch (e) {
                 // ignore
             }
