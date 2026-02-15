@@ -390,27 +390,41 @@ const search = async (query, userContext = {}) => {
 
 // Fast: Piped API (~500ms, non-IP-locked URLs)
 const getStreamUrlFromPiped = async (videoId, quality = 'high') => {
-    const qualityMap = {
-        'low': 64000,
-        'medium': 128000,
-        'high': 256000
-    };
-    const preferredBitrate = qualityMap[quality] || 256000;
-
-    for (const instance of PIPED_INSTANCES) {
+    console.log(`[Piped] Trying to get stream for ${videoId} with quality ${quality}`);
+    
+    for (let i = 0; i < PIPED_INSTANCES.length; i++) {
+        const instance = PIPED_INSTANCES[i];
         try {
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 5000);
+            const timeout = setTimeout(() => controller.abort(), 8000);
 
-            const res = await fetch(`${instance}/streams/${videoId}`, {
+            const url = `${instance}/streams/${videoId}`;
+            console.log(`[Piped] Trying instance ${i + 1}/${PIPED_INSTANCES.length}: ${instance}`);
+            
+            const res = await fetch(url, {
                 signal: controller.signal,
             });
             clearTimeout(timeout);
 
-            if (!res.ok) continue;
+            if (!res.ok) {
+                console.log(`[Piped] Instance ${instance} returned ${res.status}`);
+                continue;
+            }
 
             const data = await res.json();
+            
+            if (data.error) {
+                console.log(`[Piped] Instance ${instance} returned error:`, data.error);
+                continue;
+            }
+            
             const audioStreams = data.audioStreams || [];
+            console.log(`[Piped] Found ${audioStreams.length} audio streams from ${instance}`);
+            
+            if (audioStreams.length === 0) {
+                console.log(`[Piped] No audio streams available for ${videoId}`);
+                continue;
+            }
 
             // Pick best audio stream based on quality preference
             let best;
@@ -427,6 +441,7 @@ const getStreamUrlFromPiped = async (videoId, quality = 'high') => {
             }
 
             if (best && best.url) {
+                console.log(`[Piped] Success! Got stream with bitrate ${best.bitrate} from ${instance}`);
                 return {
                     url: best.url,
                     title: data.title,
@@ -436,10 +451,12 @@ const getStreamUrlFromPiped = async (videoId, quality = 'high') => {
                 };
             }
         } catch (e) {
-            // Try next instance
+            console.log(`[Piped] Instance ${instance} failed:`, e.message);
             continue;
         }
     }
+    
+    console.log(`[Piped] All instances failed for ${videoId}`);
     return null;
 };
 
@@ -469,24 +486,39 @@ const getStreamUrlFromYtDlp = async (videoId) => {
 };
 
 const getStreamUrl = async (videoId, quality = 'high') => {
+    console.log(`[getStreamUrl] Starting for ${videoId}, quality: ${quality}`);
+    
     // 1. Check cache (include quality in cache key)
     const cacheKey = `${videoId}_${quality}`;
     const cached = streamCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        console.log(`[getStreamUrl] Returning cached result for ${videoId}`);
         return cached.data;
     }
 
     // 2. Try Piped (fast)
+    console.log(`[getStreamUrl] Trying Piped for ${videoId}`);
     let result = await getStreamUrlFromPiped(videoId, quality);
 
     // 3. Fallback to yt-dlp
     if (!result) {
-        result = await getStreamUrlFromYtDlp(videoId);
+        console.log(`[getStreamUrl] Piped failed, trying yt-dlp fallback for ${videoId}`);
+        try {
+            result = await getStreamUrlFromYtDlp(videoId);
+            console.log(`[getStreamUrl] yt-dlp succeeded for ${videoId}`);
+        } catch (ytDlpError) {
+            console.error(`[getStreamUrl] yt-dlp also failed for ${videoId}:`, ytDlpError.message);
+        }
+    } else {
+        console.log(`[getStreamUrl] Piped succeeded for ${videoId}`);
     }
 
     // Cache result
     if (result) {
         streamCache.set(cacheKey, { data: result, timestamp: Date.now() });
+        console.log(`[getStreamUrl] Cached result for ${videoId}`);
+    } else {
+        console.error(`[getStreamUrl] Complete failure - no stream URL for ${videoId}`);
     }
 
     return result;
