@@ -56,6 +56,8 @@ router.get('/', optionalAuth, async (req, res) => {
         const mood1 = hasMood ? moods[0] : '';
         const mood2 = (hasMood && moods.length > 1) ? moods[1] : '';
 
+        const userContext = { language: lang, mood: mood1 };
+
         // 1. Made For You: Context + Mood + Lang
         // "Morning Happy Tamil songs" or "Late Night Chill songs"
         let query1 = `${timeContext} vibe songs`;
@@ -72,9 +74,9 @@ router.get('/', optionalAuth, async (req, res) => {
         let query3 = hasLang ? `New ${lang} music ${year}` : `New music ${year}`;
 
         // Run searches sequentially to save memory
-        const madeForYou = await youtubeService.search(query1);
-        const trendingNow = await youtubeService.search(query2);
-        const recentlyPlayed = await youtubeService.search(query3);
+        const madeForYou = await youtubeService.search(query1, userContext);
+        const trendingNow = await youtubeService.search(query2, userContext);
+        const recentlyPlayed = await youtubeService.search(query3, userContext);
 
         // Prefetch stream URLs for top results (reduced count)
         const allIds = [
@@ -95,15 +97,11 @@ router.get('/', optionalAuth, async (req, res) => {
         res.status(200).json({
             madeForYou,
             trendingNow,
-            recentlyPlayed, // This is actually "New Releases" in my code logic above (query3), let's fix variable name mapping in next step or here if possible. 
-            // Wait, query3 was new releases. But response keys were madeForYou, trendingNow, recentlyPlayed.
-            // In original code: const [madeForYou, trendingNow, recentlyPlayed] = await Promise.all(...)
-            // query3 was "New Releases". So "recentlyPlayed" variable actually holds "New Releases".
-            // Let's keep keys same for now to avoid breaking too much, but enable titles.
+            recentlyPlayed, // Logic maps to New Releases
             titles: {
                 madeForYou: title1,
                 trendingNow: title2,
-                recentlyPlayed: title3 // This maps to the 3rd section which is New Releases
+                recentlyPlayed: title3
             }
         });
     } catch (error) {

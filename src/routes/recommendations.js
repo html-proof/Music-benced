@@ -8,6 +8,7 @@ router.get('/', async (req, res) => {
 
     try {
         let query = 'popular music';
+        let userContext = {};
 
         if (uid) {
             // 1. Read language, moods, and last played song in parallel
@@ -25,6 +26,8 @@ router.get('/', async (req, res) => {
             const lang = languages.length > 0 ? languages[0] : '';
             const mood = moods.length > 0 ? moods[0] : '';
             const playedHistory = playedSnap.val();
+
+            userContext = { language: lang, mood: mood };
 
             if (playedHistory) {
                 // 2. Base recommendations on last played song + language
@@ -44,7 +47,7 @@ router.get('/', async (req, res) => {
             }
         }
 
-        const results = await youtubeService.search(query);
+        const results = await youtubeService.search(query, userContext);
         res.status(200).json(results);
     } catch (error) {
         console.error('Recommendation Error:', error);

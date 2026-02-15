@@ -151,10 +151,62 @@ const classifyVideo = (video) => {
     return null; // Rejected
 };
 
-const calculateScore = (video, classification) => {
+// --- SMART SEARCH & RANKING LOGIC ---
+
+// Regex patterns to extract metadata: "Song - Movie | Artist"
+const METADATA_PATTERNS = [
+    // "Song - Movie | Artist" (e.g. "Badass - Leo | Anirudh")
+    /(?<title>[^-]+)\s*-\s*(?<movie>[^|]+)\s*\|\s*(?<artist>.+)/,
+    // "Song | Movie | Artist"
+    /(?<title>[^|]+)\s*\|\s*(?<movie>[^|]+)\s*\|\s*(?<artist>.+)/,
+    // "Movie - Song" (Common in Indian channels, e.g. "Leo - Badass")
+    /(?<movie>[^-]+)\s*-\s*(?<title>.+)/,
+];
+
+const parseMetadata = (title, channel) => {
+    let metadata = { title: title.trim(), movie: '', artist: '' };
+
+    // 1. Try Regex Patterns
+    for (const pattern of METADATA_PATTERNS) {
+        const match = title.match(pattern);
+        if (match && match.groups) {
+            if (match.groups.title) metadata.title = match.groups.title.trim();
+            if (match.groups.movie) metadata.movie = match.groups.movie.trim();
+            if (match.groups.artist) metadata.artist = match.groups.artist.trim();
+            break;
+        }
+    }
+
+    // 2. Fallback Artist from Channel
+    if (!metadata.artist) {
+        if (channel.includes(' - Topic')) {
+            metadata.artist = channel.replace(' - Topic', '').trim();
+        } else if (channel.includes('Official')) {
+            metadata.artist = channel.replace('Official', '').replace('Channel', '').trim();
+        } else {
+            metadata.artist = channel; // Default to channel name
+        }
+    }
+
+    // 3. Cleanup
+    // Remove "Official Video", "Lyrical", "4K" noise from title if regex failed to catch it nicely
+    metadata.title = metadata.title
+        .replace(/\(Official.*?\)/gi, '')
+        .replace(/\[Official.*?\]/gi, '')
+        .replace(/\(Lyrical.*?\)/gi, '')
+        .replace(/\|.*/, '') // Remove trailing pipe garbage if missed
+        .trim();
+
+    return metadata;
+};
+
+const calculateScore = (video, classification, userContext = {}, query = '') => {
     let score = 0;
     const t = video.title.toLowerCase();
     const c = video.uploader.toLowerCase();
+    const q = query.toLowerCase();
+
+    // --- BASE SCORING ---
 
     // Channel Bonus
     if (c.includes(' - topic')) score += 50;
@@ -169,19 +221,46 @@ const calculateScore = (video, classification) => {
     if (video.view_count > 1000000) score += 20;
     else if (video.view_count > 100000) score += 10;
 
-    // Duration Logic
-    // For songs, punish very short or very long within the allowed range slightly?
-    // Actually, strict duration filtering is already done.
+    // --- SMART CONTEXT SCORING ---
 
-    // Exact Match Bonus (Heuristic)
-    // if (t === query.toLowerCase()) score += 100; // Hard to do without passing query
+    // 1. User Language Boost
+    if (userContext.language) {
+        const lang = userContext.language.toLowerCase();
+        // Check exact language match in title/channel
+        if (t.includes(lang) || c.includes(lang)) {
+            score += 50;
+        }
+    }
+
+    // 2. User Mood Boost
+    if (userContext.mood) {
+        const mood = userContext.mood.toLowerCase();
+        if (t.includes(mood)) {
+            score += 30;
+        }
+    }
+
+    // 3. Query Relevance (Fuzzy-ish)
+    if (q) {
+        // Exact title match
+        if (t === q) score += 100;
+        // Contains query strictly
+        else if (t.includes(q)) score += 40;
+
+        // If parsed metadata exists, check against Movie/Artist (handled here implicitly via raw strings)
+        if (video.movie && video.movie.toLowerCase().includes(q)) score += 40;
+        if (video.artist && video.artist.toLowerCase().includes(q)) score += 30;
+    }
 
     return score;
 };
 
-const search = async (query) => {
-    // Check search cache
-    const cacheKey = query.toLowerCase().trim();
+const search = async (query, userContext = {}) => {
+    // Check search cache (Cache key should include lang/mood if we strictly filter, 
+    // but for now we append lang to cache key to be safe)
+    const contextKey = userContext.language ? `_${userContext.language}` : '';
+    const cacheKey = `${query.toLowerCase().trim()}${contextKey}`;
+
     const cached = searchCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < SEARCH_CACHE_TTL) {
         return cached.data;
@@ -192,12 +271,18 @@ const search = async (query) => {
         let searchQuery = query;
         const qLower = query.toLowerCase();
 
-        // If it looks like a podcast search, boost podcast terms
+        // Pass 1: If user has language, append it if not present
+        if (userContext.language && !qLower.includes(userContext.language.toLowerCase())) {
+            // Only append if query is short (likely a movie/song name)
+            if (query.split(' ').length < 4) {
+                searchQuery += ` ${userContext.language}`;
+            }
+        }
+
+        // Pass 2: Contextual keywords
         if (qLower.includes('podcast') || qLower.includes('episode') || qLower.includes('talk')) {
             searchQuery += " podcast full episode";
         } else {
-            // Default to song boosting
-            // Don't add if already present
             if (!qLower.includes('audio') && !qLower.includes('song') && !qLower.includes('official')) {
                 searchQuery += " audio official";
             }
@@ -206,9 +291,6 @@ const search = async (query) => {
         console.log(`Searching with boosted query: "${searchQuery}"`);
 
         // 1. Try Piped API (Fast)
-        // Fetch MORE results to allow for filtering
-        // Piped doesn't support limit param in this endpoint generally, implies default. 
-        // We might need to handle pagination if default is too small, but usually it returns enough.
         let rawResults = await searchFromPiped(searchQuery);
 
         // 2. Fallback to yt-dlp (Slow but reliable)
@@ -218,7 +300,7 @@ const search = async (query) => {
             const cookiePath = writeCookiesFile();
             const args = {
                 dumpSingleJson: true,
-                defaultSearch: 'ytsearch20', // Fetch 20 results
+                defaultSearch: 'ytsearch20',
                 flatPlaylist: true,
                 noWarnings: true,
                 preferFreeFormats: true,
@@ -229,11 +311,9 @@ const search = async (query) => {
                 extractorArgs: 'youtube:player_client=android',
             };
 
-            if (cookiePath) {
-                args.cookies = cookiePath;
-            }
+            if (cookiePath) args.cookies = cookiePath;
 
-            const output = await ytDlp(searchQuery, args); // Use boosted query
+            const output = await ytDlp(searchQuery, args);
 
             if (output.entries) {
                 rawResults = output.entries.map(entry => ({
@@ -255,43 +335,51 @@ const search = async (query) => {
         if (rawResults && rawResults.length > 0) {
             for (const video of rawResults) {
                 // 1. Hard Block
-                if (isBlocked(video.title, video.uploader)) {
-                    continue;
-                }
+                if (isBlocked(video.title, video.uploader)) continue;
 
                 // 2. Classify
                 const classification = classifyVideo(video);
-                if (!classification) {
-                    continue; // Not a song or podcast
-                }
+                if (!classification) continue;
 
-                // 3. Score
-                const score = calculateScore(video, classification);
+                // 3. Extract Metadata (Smart Parse)
+                const metadata = parseMetadata(video.title, video.uploader);
+
+                // 4. Score
+                // We pass the *original* video ref to calculateScore, but modify it with metadata
+                video.movie = metadata.movie;
+                video.artist = metadata.artist;
+
+                const score = calculateScore(video, classification, userContext, query);
 
                 processedResults.push({
                     ...video,
                     type: classification,
-                    score: score
+                    score: score,
+                    title: metadata.title, // clean title
+                    language: userContext.language || '',
                 });
             }
         }
 
-        // 4. Sort by Score Descending
+        // 5. Sort by Score Descending
         processedResults.sort((a, b) => b.score - a.score);
 
-        // 5. Cleanup (remove score before returning if not needed, but useful for debug)
+        // 6. Cleanup
         const finalResults = processedResults.map(r => ({
             id: r.id,
             title: r.title,
-            uploader: r.uploader, // channel
+            movie: r.movie, // New Field
+            artist: r.artist, // New Field
+            uploader: r.uploader,
             duration: r.duration,
             view_count: r.view_count,
             thumbnail: r.thumbnail,
             type: r.type,
-            // score: r.score // Optional: keep for debugging
+            score: r.score,
+            language: r.language
         }));
 
-        // Cache the results
+        // Cache
         if (finalResults && finalResults.length > 0) {
             searchCache.set(cacheKey, { data: finalResults, timestamp: Date.now() });
         }
@@ -403,5 +491,3 @@ const prefetchStreamUrls = async (videoIds) => {
 };
 
 module.exports = { search, getStreamUrl, prefetchStreamUrls };
-
-

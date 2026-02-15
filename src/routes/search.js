@@ -26,9 +26,30 @@ router.get('/', optionalAuth, async (req, res) => {
         return res.status(400).json({ error: 'Missing search query' });
     }
 
-    // Save search history if user is authenticated
+    let userContext = {};
+
+    // Save search history & Get User Context if authenticated
     if (req.user && req.user.uid) {
         try {
+            // 1. Fetch User Preferences (Parallel)
+            const [langSnap, moodSnap] = await Promise.all([
+                db.ref(`users/${req.user.uid}/language`).once('value'),
+                db.ref(`users/${req.user.uid}/moods`).once('value'),
+            ]);
+
+            const langVal = langSnap.val();
+            const moodVal = moodSnap.val();
+
+            // Handle array or string
+            const languages = langVal ? (Array.isArray(langVal) ? langVal : [langVal]) : [];
+            const moods = moodVal ? (Array.isArray(moodVal) ? moodVal : [moodVal]) : [];
+
+            userContext = {
+                language: languages.length > 0 ? languages[0] : null,
+                mood: moods.length > 0 ? moods[0] : null
+            };
+
+            // 2. Save History
             const newSearchRef = db.ref(`users/${req.user.uid}/search`).push();
             await newSearchRef.set({
                 id: newSearchRef.key,
@@ -36,13 +57,13 @@ router.get('/', optionalAuth, async (req, res) => {
                 timestamp: new Date().toISOString()
             });
         } catch (error) {
-            console.error('Failed to save search history:', error);
-            // Don't block search results on history error
+            console.error('Failed to handle user data in search:', error);
+            // Continue with empty context
         }
     }
 
     try {
-        const results = await youtubeService.search(q);
+        const results = await youtubeService.search(q, userContext);
         res.status(200).json(results);
 
         // Pre-warm stream cache for top results (fire & forget)
@@ -51,6 +72,7 @@ router.get('/', optionalAuth, async (req, res) => {
             youtubeService.prefetchStreamUrls(topIds);
         }
     } catch (error) {
+        console.error('Search failed:', error);
         res.status(500).json({ error: 'Search failed' });
     }
 });
