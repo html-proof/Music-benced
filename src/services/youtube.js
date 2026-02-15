@@ -73,17 +73,15 @@ const writeCookiesFile = () => {
 
 // 1. Block Lists (Reject these)
 const BLOCK_KEYWORDS = [
-    "lyrics", "lyrical", "status", "shorts", "8d", "16d", "32d", "3d",
-    "slowed", "reverb", "sped up", "remix", "mashup", "cover", "fanmade",
-    "edit", "reupload", "karaoke", "instrumental", "bgm", "trailer", "teaser",
-    "reaction", "live", "dance", "tiktok", "clip", "highlights", "short",
+    "status", "shorts", "8d", "16d", "32d",
+    "slowed", "reverb", "sped up", "mashup", "fanmade",
+    "reupload", "karaoke", "instrumental", "bgm", "trailer", "teaser",
+    "reaction", "tiktok", "clip", "highlights", "short",
     "promo", "news", "debate", "politics", "speech", "election", "bjp",
     "congress", "modi", "rahul", "parliament", "breaking", "live news",
-    "sex", "nude", "nudity", "porn", "xxx", "hot", "kiss", "romance scene",
-    "bed scene", "18+", "onlyfans", "adult", "reel", "scene", "scenes",
-    "movie scene", "film scene", "short scene", "short scenes", "dialogue",
-    "dialog", "glimpse", "making", "behind the scenes", "bts", "cut",
-    "bass boosted", "nightcore"
+    "sex", "nude", "nudity", "porn", "xxx", "hot scenes", "bed scene",
+    "18+", "onlyfans", "adult", "reel",
+    "bass boosted", "nightcore", "whatsapp status"
 ];
 
 const BLOCK_CHANNELS = [
