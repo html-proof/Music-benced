@@ -299,7 +299,7 @@ const search = async (query, userContext = {}) => {
                 noWarnings: true,
                 preferFreeFormats: true,
                 skipDownload: true,
-                format: 'bestaudio/best',
+                format: 'bestaudio[ext=m4a]/bestaudio[ext=opus]/bestaudio',
                 noCheckCertificate: true,
                 noPlaylist: true,
                 extractorArgs: 'youtube:player_client=android',
@@ -430,7 +430,7 @@ const getStreamUrlFromYtDlp = async (videoId) => {
     const args = {
         dumpSingleJson: true,
         noWarnings: true,
-        format: 'bestaudio/best',
+        format: 'bestaudio[ext=m4a]/bestaudio[ext=opus]/bestaudio',
         noCheckCertificates: true,
         extractorArgs: 'youtube:player_client=android',
     };
