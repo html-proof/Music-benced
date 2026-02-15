@@ -31,6 +31,7 @@ const userRoutes = require('./routes/user');
 const playlistRoutes = require('./routes/playlist');
 const recommendationRoutes = require('./routes/recommendations');
 const homeRoutes = require('./routes/home');
+const adminRoutes = require('./routes/admin');
 
 app.use('/auth', authRoutes);
 app.use('/search', searchRoutes);
@@ -39,6 +40,7 @@ app.use('/user', userRoutes);
 app.use('/playlist', playlistRoutes);
 app.use('/recommendations', recommendationRoutes);
 app.use('/home', homeRoutes);
+app.use('/admin', adminRoutes);
 const queueRoutes = require('./routes/queue');
 app.use('/queue', queueRoutes);
 
