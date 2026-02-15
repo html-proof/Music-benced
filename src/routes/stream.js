@@ -3,23 +3,25 @@ const router = express.Router();
 const youtubeService = require('../services/youtube');
 
 router.get('/', async (req, res) => {
-    const { videoId } = req.query;
+    const { videoId, quality } = req.query;
 
     if (!videoId) {
         return res.status(400).json({ error: 'Missing videoId' });
     }
 
-    // Construct Proxy URL
+    // Quality: 'low' (64k), 'medium' (128k), 'high' (256k+)
+    const qualitySetting = quality || 'high';
+
+    // Construct Proxy URL with quality
     const protocol = req.protocol;
     const host = req.get('host');
-    const proxyUrl = `${protocol}://${host}/stream/proxy?videoId=${videoId}`;
+    const proxyUrl = `${protocol}://${host}/stream/proxy?videoId=${videoId}&quality=${qualitySetting}`;
 
     try {
-        const streamData = await youtubeService.getStreamUrl(videoId);
+        const streamData = await youtubeService.getStreamUrl(videoId, qualitySetting);
 
         if (streamData) {
-            // Return a COPY with the proxy URL
-            res.status(200).json({ ...streamData, url: proxyUrl });
+            res.status(200).json({ ...streamData, url: proxyUrl, quality: qualitySetting });
         } else {
             console.error('Stream not found for', videoId);
             res.status(500).json({ error: 'Stream not found' });
@@ -32,21 +34,32 @@ router.get('/', async (req, res) => {
 
 // Proxy audio stream to avoid YouTube IP-based 403 restrictions
 router.get('/proxy', async (req, res) => {
-    const { videoId } = req.query;
+    const { videoId, quality } = req.query;
 
     if (!videoId) {
         return res.status(400).json({ error: 'Missing videoId' });
     }
 
-    try {
-        const streamData = await youtubeService.getStreamUrl(videoId);
-        const audioUrl = streamData.url;
+    // Quality settings for Piped API
+    const qualityMap = {
+        'low': { bitrate: 64000 },
+        'medium': { bitrate: 128000 },
+        'high': { bitrate: 256000 }
+    };
+    const preferredBitrate = qualityMap[quality]?.bitrate || 256000;
 
-        if (!audioUrl) {
+    try {
+        const streamData = await youtubeService.getStreamUrl(videoId, quality);
+        
+        if (!streamData || !streamData.url) {
             return res.status(500).json({ error: 'No audio URL found' });
         }
 
-        // Fetch the audio from YouTube and pipe it to the client
+        const audioUrl = streamData.url;
+
+        // Set timeout for slow connections (cellular)
+        req.setTimeout(30000); // 30 seconds
+
         const fetch = (await import('node-fetch')).default;
         const audioResponse = await fetch(audioUrl, {
             headers: {

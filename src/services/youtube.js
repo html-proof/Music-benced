@@ -387,11 +387,18 @@ const search = async (query, userContext = {}) => {
 };
 
 // Fast: Piped API (~500ms, non-IP-locked URLs)
-const getStreamUrlFromPiped = async (videoId) => {
+const getStreamUrlFromPiped = async (videoId, quality = 'high') => {
+    const qualityMap = {
+        'low': 64000,
+        'medium': 128000,
+        'high': 256000
+    };
+    const preferredBitrate = qualityMap[quality] || 256000;
+
     for (const instance of PIPED_INSTANCES) {
         try {
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 3000);
+            const timeout = setTimeout(() => controller.abort(), 5000);
 
             const res = await fetch(`${instance}/streams/${videoId}`, {
                 signal: controller.signal,
@@ -403,10 +410,19 @@ const getStreamUrlFromPiped = async (videoId) => {
             const data = await res.json();
             const audioStreams = data.audioStreams || [];
 
-            // Pick best audio stream (sort by bitrate)
-            const best = audioStreams
-                .filter(s => s.mimeType && s.mimeType.startsWith('audio/'))
-                .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
+            // Pick best audio stream based on quality preference
+            let best;
+            if (quality === 'low') {
+                // Pick lowest bitrate for slow connections
+                best = audioStreams
+                    .filter(s => s.mimeType && s.mimeType.startsWith('audio/'))
+                    .sort((a, b) => (a.bitrate || 0) - (b.bitrate || 0))[0];
+            } else {
+                // Pick highest bitrate
+                best = audioStreams
+                    .filter(s => s.mimeType && s.mimeType.startsWith('audio/'))
+                    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
+            }
 
             if (best && best.url) {
                 return {
@@ -414,6 +430,7 @@ const getStreamUrlFromPiped = async (videoId) => {
                     title: data.title,
                     duration: data.duration,
                     thumbnail: data.thumbnailUrl,
+                    bitrate: best.bitrate || 0,
                 };
             }
         } catch (e) {
@@ -449,15 +466,16 @@ const getStreamUrlFromYtDlp = async (videoId) => {
     };
 };
 
-const getStreamUrl = async (videoId) => {
-    // 1. Check cache
-    const cached = streamCache.get(videoId);
+const getStreamUrl = async (videoId, quality = 'high') => {
+    // 1. Check cache (include quality in cache key)
+    const cacheKey = `${videoId}_${quality}`;
+    const cached = streamCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
         return cached.data;
     }
 
     // 2. Try Piped (fast)
-    let result = await getStreamUrlFromPiped(videoId);
+    let result = await getStreamUrlFromPiped(videoId, quality);
 
     // 3. Fallback to yt-dlp
     if (!result) {
@@ -466,7 +484,7 @@ const getStreamUrl = async (videoId) => {
 
     // Cache result
     if (result) {
-        streamCache.set(videoId, { data: result, timestamp: Date.now() });
+        streamCache.set(cacheKey, { data: result, timestamp: Date.now() });
     }
 
     return result;
