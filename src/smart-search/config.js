@@ -9,8 +9,8 @@ const config = {
   search: {
     // Maximum number of search results to return
     maxResults: 30,
-    // Minimum score threshold for search results
-    minScore: 20,
+    // Minimum score threshold for search results (0 = show any match)
+    minScore: 0,
     
     // Field scoring points
     scoring: {
@@ -35,7 +35,7 @@ const config = {
       }
     },
     
-    // Personalization boosts
+    // Personalization boosts (optional - only applied if preferences provided)
     boosts: {
       preferredLanguage: 30,
       preferredMood: 25,

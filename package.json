@@ -7,7 +7,9 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "setup": "node scripts/setup.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "repository": {
     "type": "git",
@@ -31,5 +33,10 @@
     "morgan": "^1.10.1",
     "node-fetch": "^3.3.2",
     "yt-dlp-exec": "^1.0.2"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "fast-check": "^4.5.3",
+    "jest": "^30.2.0"
   }
 }

@@ -71,19 +71,61 @@ class SearchEngine {
   /**
    * Execute search with personalized ranking
    * @param {string} query - Search query
-   * @param {Object} userPreferences - User preferences (language, mood)
+   * @param {Object} userPreferences - User preferences (language, mood) - optional, used only for boosting
+   * @param {Array} recentlyPlayedSongIds - Array of recently played song IDs (optional)
    * @returns {Promise<Array>} Top 30 ranked search results
    */
-  async search(query, userPreferences) {
-    // TODO: Implement search logic
-    throw new Error('Not implemented');
+  async search(query, userPreferences = {}, recentlyPlayedSongIds = []) {
+    // Handle empty query
+    if (!query || typeof query !== 'string' || query.trim() === '') {
+      return [];
+    }
+
+    try {
+      // IMPORTANT: Always load ALL songs for search, don't filter by language
+      // This allows users to search for songs in any language
+      // Language preference is only used for BOOSTING scores, not filtering
+      const allSongs = await this._loadSongs(null);
+
+      if (allSongs.length === 0) {
+        return [];
+      }
+
+      // Score all songs
+      const scoredSongs = allSongs.map(song => ({
+        song,
+        score: this.scoreSong(song, query, userPreferences, recentlyPlayedSongIds, allSongs)
+      }));
+
+      // Filter out songs with NO match (score = 0)
+      // Keep songs with any match, even if score is low
+      const filteredSongs = scoredSongs.filter(item => item.score > 0);
+
+      // Sort by score descending
+      filteredSongs.sort((a, b) => b.score - a.score);
+
+      // Return top 30 results
+      const topResults = filteredSongs.slice(0, config.search.maxResults);
+
+      // Save search history
+      if (this.userId) {
+        await this.saveSearchHistory(query).catch(err => {
+          console.warn('Failed to save search history:', err.message);
+        });
+      }
+
+      // Return just the songs (without scores)
+      return topResults.map(item => item.song);
+    } catch (error) {
+      throw new Error(`Search failed: ${error.message}`);
+    }
   }
 
   /**
    * Score a single song against the query
    * @param {Object} song - Song object
    * @param {string} query - Search query
-   * @param {Object} userPreferences - User preferences
+   * @param {Object} userPreferences - User preferences (languages: array, moods: array)
    * @param {Array} recentlyPlayedSongIds - Array of recently played song IDs (optional)
    * @param {Array} allSongs - All songs for trending boost calculation (optional)
    * @returns {number} Total score
@@ -91,22 +133,48 @@ class SearchEngine {
   scoreSong(song, query, userPreferences = {}, recentlyPlayedSongIds = [], allSongs = []) {
     let score = 0;
 
+    // Normalize query for better matching
+    const normalizedQuery = query.toLowerCase().trim();
+    
+    // Split query into words for multi-word matching
+    const queryWords = normalizedQuery.split(/\s+/).filter(word => word.length > 0);
+    
     // Score title field (Req 1.2, 1.3, 1.4)
-    score += this.scoreField(song.title, query, 100, 80, 60);
+    const titleScore = this.scoreField(song.title, normalizedQuery, 100, 80, 60);
+    score += titleScore;
+    
+    // Bonus: Check if title contains multiple query words (only if query has 2+ words AND no exact/starts-with match)
+    if (queryWords.length > 1 && titleScore < 80) {
+      const titleLower = (song.title || '').toLowerCase();
+      const matchedWords = queryWords.filter(word => titleLower.includes(word));
+      if (matchedWords.length > 1) {
+        score += matchedWords.length * 10; // Bonus for multi-word match
+      }
+    }
 
     // Score movie field (Req 1.5, 1.6)
-    score += this.scoreField(song.movie, query, 70, 0, 50);
+    const movieScore = this.scoreField(song.movie, normalizedQuery, 70, 0, 50);
+    score += movieScore;
+    
+    // Bonus: Check if movie contains multiple query words (only if query has 2+ words AND no exact match)
+    if (queryWords.length > 1 && movieScore < 70) {
+      const movieLower = (song.movie || '').toLowerCase();
+      const matchedWords = queryWords.filter(word => movieLower.includes(word));
+      if (matchedWords.length > 1) {
+        score += matchedWords.length * 8; // Bonus for multi-word match
+      }
+    }
 
     // Score artist field (Req 1.7, 1.8)
-    score += this.scoreField(song.artist, query, 65, 0, 45);
+    score += this.scoreField(song.artist, normalizedQuery, 65, 0, 45);
 
     // Score album field (Req 1.9)
-    score += this.scoreField(song.album, query, 30, 0, 30);
+    score += this.scoreField(song.album, normalizedQuery, 30, 0, 30);
 
     // Score tags field (Req 1.10)
     if (song.tags && Array.isArray(song.tags)) {
       for (const tag of song.tags) {
-        const tagScore = this.scoreField(tag, query, 25, 0, 25);
+        const tagScore = this.scoreField(tag, normalizedQuery, 25, 0, 25);
         if (tagScore > 0) {
           score += tagScore;
           break; // Only count first matching tag
@@ -114,16 +182,35 @@ class SearchEngine {
       }
     }
 
-    // Apply personalization boosts (Req 2.1, 2.2, 2.3)
+    // Apply personalization boosts (optional - only if preferences provided)
     
-    // Language preference boost: +30 points (Req 2.1)
-    if (userPreferences.language && song.language && 
-        song.language.toLowerCase() === userPreferences.language.toLowerCase()) {
-      score += 30;
+    // Language preference boost: +30 points (supports multiple languages)
+    if (userPreferences.languages && Array.isArray(userPreferences.languages) && song.language) {
+      const languageMatch = userPreferences.languages.some(lang => 
+        lang.toLowerCase() === song.language.toLowerCase()
+      );
+      if (languageMatch) {
+        score += 30;
+      }
+    } else if (userPreferences.language && song.language) {
+      // Backward compatibility: single language
+      if (song.language.toLowerCase() === userPreferences.language.toLowerCase()) {
+        score += 30;
+      }
     }
 
-    // Mood preference boost: +25 points (Req 2.2)
-    if (userPreferences.mood && song.moods && Array.isArray(song.moods)) {
+    // Mood preference boost: +25 points (supports multiple moods)
+    if (userPreferences.moods && Array.isArray(userPreferences.moods) && song.moods && Array.isArray(song.moods)) {
+      const moodMatch = userPreferences.moods.some(userMood =>
+        song.moods.some(songMood => 
+          songMood.toLowerCase() === userMood.toLowerCase()
+        )
+      );
+      if (moodMatch) {
+        score += 25;
+      }
+    } else if (userPreferences.mood && song.moods && Array.isArray(song.moods)) {
+      // Backward compatibility: single mood
       const moodMatch = song.moods.some(mood => 
         mood.toLowerCase() === userPreferences.mood.toLowerCase()
       );
@@ -214,8 +301,24 @@ class SearchEngine {
    * @returns {Promise<void>}
    */
   async saveSearchHistory(query) {
-    // TODO: Implement search history tracking
-    throw new Error('Not implemented');
+    if (!query || !this.userId) {
+      return;
+    }
+
+    try {
+      const timestamp = Date.now();
+      const historyRef = this.db.child(config.firebasePaths.users)
+        .child(this.userId)
+        .child(config.firebasePaths.searchHistory)
+        .child(timestamp.toString());
+
+      await historyRef.set({
+        query,
+        searchedAt: timestamp
+      });
+    } catch (error) {
+      throw new Error(`Failed to save search history: ${error.message}`);
+    }
   }
 }
 

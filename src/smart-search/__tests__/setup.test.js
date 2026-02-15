@@ -79,7 +79,7 @@ describe('Smart Search System Setup', () => {
     test('Search configuration should be valid', () => {
       expect(config.search).toBeDefined();
       expect(config.search.maxResults).toBe(30);
-      expect(config.search.minScore).toBe(20);
+      expect(config.search.minScore).toBe(0); // Changed to 0 for context-aware search
       expect(config.search.scoring).toBeDefined();
       expect(config.search.boosts).toBeDefined();
     });

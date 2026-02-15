@@ -1,80 +1,189 @@
 const express = require('express');
+const { db } = require('../config/firebase');
+const { SmartSearchSystem } = require('../smart-search');
+
 const router = express.Router();
-const youtubeService = require('../services/youtube');
-const { db, auth } = require('../config/firebase');
 
-// Middleware to optionally get user if token is present, but not enforce it for search
-const optionalAuth = async (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.split('Bearer ')[1];
-        try {
-            const decodedToken = await auth.verifyIdToken(token);
-            req.user = decodedToken;
-        } catch (e) {
-            // Ignore invalid token for search, just treat as anonymous
-            console.log('Optional auth failed:', e.message);
-        }
+/**
+ * GET /api/search
+ * Search for songs
+ * 
+ * Query params:
+ * - q: Search query (required)
+ * - languages: Comma-separated list of languages (optional, for boosting only)
+ * - language: Single language (optional, for boosting only)
+ * - moods: Comma-separated list of moods (optional, for boosting only)
+ * - mood: Single mood (optional, for boosting only)
+ */
+router.get('/', async (req, res) => {
+  try {
+    const { q, languages, language, moods, mood } = req.query;
+    
+    if (!q || q.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        error: 'Search query is required'
+      });
     }
-    next();
-};
-
-router.get('/', optionalAuth, async (req, res) => {
-    const { q } = req.query;
-
-    if (!q) {
-        return res.status(400).json({ error: 'Missing search query' });
+    
+    // Get user ID from authentication (or use anonymous)
+    const userId = req.user?.id || 'anonymous';
+    
+    // Initialize smart search system
+    const smartSearch = new SmartSearchSystem(db, userId);
+    
+    // User preferences (optional - only used for boosting scores)
+    const userPreferences = {};
+    
+    // Handle multiple languages
+    if (languages) {
+      userPreferences.languages = languages.split(',').map(l => l.trim());
+    } else if (language) {
+      userPreferences.languages = [language];
     }
-
-    let userContext = {};
-
-    // Save search history & Get User Context if authenticated
-    if (req.user && req.user.uid) {
-        try {
-            // 1. Fetch User Preferences (Parallel)
-            const [langSnap, moodSnap] = await Promise.all([
-                db.ref(`users/${req.user.uid}/language`).once('value'),
-                db.ref(`users/${req.user.uid}/moods`).once('value'),
-            ]);
-
-            const langVal = langSnap.val();
-            const moodVal = moodSnap.val();
-
-            // Handle array or string
-            const languages = langVal ? (Array.isArray(langVal) ? langVal : [langVal]) : [];
-            const moods = moodVal ? (Array.isArray(moodVal) ? moodVal : [moodVal]) : [];
-
-            userContext = {
-                language: languages.length > 0 ? languages[0] : null,
-                mood: moods.length > 0 ? moods[0] : null
-            };
-
-            // 2. Save History
-            const newSearchRef = db.ref(`users/${req.user.uid}/search`).push();
-            await newSearchRef.set({
-                id: newSearchRef.key,
-                query: q,
-                timestamp: new Date().toISOString()
-            });
-        } catch (error) {
-            console.error('Failed to handle user data in search:', error);
-            // Continue with empty context
-        }
+    
+    // Handle multiple moods
+    if (moods) {
+      userPreferences.moods = moods.split(',').map(m => m.trim());
+    } else if (mood) {
+      userPreferences.moods = [mood];
     }
+    
+    // Perform search (searches ALL songs, preferences only boost scores)
+    const results = await smartSearch.search(q, userPreferences);
+    
+    // Return results
+    res.json({
+      success: true,
+      query: q,
+      preferences: userPreferences,
+      count: results.length,
+      results: results
+    });
+    
+  } catch (error) {
+    console.error('Search error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Search failed',
+      message: error.message
+    });
+  }
+});
 
-    try {
-        const results = await youtubeService.search(q, userContext);
-        res.status(200).json(results);
-
-        // Pre-warm stream cache for top results (fire & forget)
-        const topIds = results.slice(0, 3).map(r => r.id).filter(Boolean);
-        if (topIds.length > 0) {
-            youtubeService.prefetchStreamUrls(topIds);
-        }
-    } catch (error) {
-        console.error('Search failed:', error);
-        res.status(500).json({ error: 'Search failed' });
+/**
+ * GET /api/search/recommendations
+ * Get personalized recommendations
+ * 
+ * Query params:
+ * - languages: Comma-separated list of languages (optional)
+ * - language: Single language (optional)
+ * - moods: Comma-separated list of moods (optional)
+ * - mood: Single mood (optional)
+ */
+router.get('/recommendations', async (req, res) => {
+  try {
+    const { languages, language, moods, mood } = req.query;
+    
+    // Get user ID from authentication
+    const userId = req.user?.id || 'anonymous';
+    
+    // Initialize smart search system
+    const smartSearch = new SmartSearchSystem(db, userId);
+    
+    // User preferences
+    const userPreferences = {};
+    
+    // Handle multiple languages
+    if (languages) {
+      userPreferences.languages = languages.split(',').map(l => l.trim());
+    } else if (language) {
+      userPreferences.languages = [language];
     }
+    
+    // Handle multiple moods
+    if (moods) {
+      userPreferences.moods = moods.split(',').map(m => m.trim());
+    } else if (mood) {
+      userPreferences.moods = [mood];
+    }
+    
+    // Get recommendations
+    const recommendations = await smartSearch.getRecommendations(userPreferences);
+    
+    // Return results
+    res.json({
+      success: true,
+      preferences: userPreferences,
+      count: recommendations.length,
+      recommendations: recommendations
+    });
+    
+  } catch (error) {
+    console.error('Recommendations error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get recommendations',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/search/feed
+ * Get personalized home feed
+ * 
+ * Query params:
+ * - languages: Comma-separated list of languages (optional)
+ * - language: Single language (optional)
+ * - moods: Comma-separated list of moods (optional)
+ * - mood: Single mood (optional)
+ */
+router.get('/feed', async (req, res) => {
+  try {
+    const { languages, language, moods, mood } = req.query;
+    
+    // Get user ID from authentication
+    const userId = req.user?.id || 'anonymous';
+    
+    // Initialize smart search system
+    const smartSearch = new SmartSearchSystem(db, userId);
+    
+    // User preferences
+    const userPreferences = {};
+    
+    // Handle multiple languages
+    if (languages) {
+      userPreferences.languages = languages.split(',').map(l => l.trim());
+    } else if (language) {
+      userPreferences.languages = [language];
+    }
+    
+    // Handle multiple moods
+    if (moods) {
+      userPreferences.moods = moods.split(',').map(m => m.trim());
+    } else if (mood) {
+      userPreferences.moods = [mood];
+    }
+    
+    // Generate home feed
+    const feed = await smartSearch.getHomeFeed(userPreferences);
+    
+    // Return feed
+    res.json({
+      success: true,
+      preferences: userPreferences,
+      feed: feed
+    });
+    
+  } catch (error) {
+    console.error('Feed generation error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate home feed',
+      message: error.message
+    });
+  }
 });
 
 module.exports = router;
