@@ -69,6 +69,116 @@ const writeCookiesFile = () => {
     }
 };
 
+// --- Constants & Configuration ---
+
+// 1. Block Lists (Reject these)
+const BLOCK_KEYWORDS = [
+    "lyrics", "lyrical", "status", "shorts", "8d", "16d", "32d", "3d",
+    "slowed", "reverb", "sped up", "remix", "mashup", "cover", "fanmade",
+    "edit", "reupload", "karaoke", "instrumental", "bgm", "trailer", "teaser",
+    "reaction", "live", "dance", "tiktok", "clip", "highlights", "short",
+    "promo", "news", "debate", "politics", "speech", "election", "bjp",
+    "congress", "modi", "rahul", "parliament", "breaking", "live news",
+    "sex", "nude", "nudity", "porn", "xxx", "hot", "kiss", "romance scene",
+    "bed scene", "18+", "onlyfans", "adult", "reel", "scene", "scenes",
+    "movie scene", "film scene", "short scene", "short scenes", "dialogue",
+    "dialog", "glimpse", "making", "behind the scenes", "bts", "cut",
+    "bass boosted", "nightcore"
+];
+
+const BLOCK_CHANNELS = [
+    "status", "edit", "fan", "reupload", "reaction", "news", "politics",
+    "clip", "shorts", "reel", "tiktok", "scene", "movie"
+];
+
+// 2. Allow Lists (Keep these)
+const SONG_ALLOW_KEYWORDS = [
+    "audio", "song", "music", "official audio", "full song", "original",
+    "video", "mv" // Added video/mv as they often contain the song
+];
+
+const PODCAST_ALLOW_KEYWORDS = [
+    "podcast", "episode", "ep", "interview", "talk", "conversation"
+];
+
+const SAFE_CHANNELS = [
+    " - Topic", "VEVO", "Official", "Records", "Music", "Studio", "Podcast", "Studios"
+];
+
+// --- Helper Functions ---
+
+const isBlocked = (title, channel) => {
+    const t = title.toLowerCase();
+    const c = channel.toLowerCase();
+
+    // Check blocked keywords in title
+    if (BLOCK_KEYWORDS.some(k => t.includes(k))) return true;
+
+    // Check blocked keywords in channel
+    if (BLOCK_CHANNELS.some(k => c.includes(k))) return true;
+
+    return false;
+};
+
+const classifyVideo = (video) => {
+    const t = video.title.toLowerCase();
+    const c = video.uploader.toLowerCase(); // uploader = channel
+    const d = video.duration;
+
+    // 1. Song Classification
+    // Duration: 90s (1:30) to 8m (480s)
+    if (d >= 90 && d <= 480) {
+        // Must contain at least one song keyword OR be from a safe channel
+        const hasKeyword = SONG_ALLOW_KEYWORDS.some(k => t.includes(k));
+        const isSafeChannel = SAFE_CHANNELS.some(k => c.includes(k));
+
+        if (hasKeyword || isSafeChannel) {
+            return 'song';
+        }
+    }
+
+    // 2. Podcast Classification
+    // Duration: 15m (900s) to 4h (14400s)
+    if (d >= 900 && d <= 14400) {
+        const hasKeyword = PODCAST_ALLOW_KEYWORDS.some(k => t.includes(k));
+        const isSafeChannel = c.includes('podcast') || c.includes('studios') || c.includes('official');
+
+        if (hasKeyword || isSafeChannel) {
+            return 'podcast';
+        }
+    }
+
+    return null; // Rejected
+};
+
+const calculateScore = (video, classification) => {
+    let score = 0;
+    const t = video.title.toLowerCase();
+    const c = video.uploader.toLowerCase();
+
+    // Channel Bonus
+    if (c.includes(' - topic')) score += 50;
+    else if (SAFE_CHANNELS.some(k => c.includes(k.toLowerCase()))) score += 30;
+
+    // Title Bonus
+    if (t.includes('official audio') || t.includes('official music video')) score += 30;
+    if (t.includes('official video')) score += 20;
+    if (t.includes('lyric video')) score -= 20; // Prefer audio/official over lyrics
+
+    // View Count Bonus (cap at 20)
+    if (video.view_count > 1000000) score += 20;
+    else if (video.view_count > 100000) score += 10;
+
+    // Duration Logic
+    // For songs, punish very short or very long within the allowed range slightly?
+    // Actually, strict duration filtering is already done.
+
+    // Exact Match Bonus (Heuristic)
+    // if (t === query.toLowerCase()) score += 100; // Hard to do without passing query
+
+    return score;
+};
+
 const search = async (query) => {
     // Check search cache
     const cacheKey = query.toLowerCase().trim();
@@ -78,17 +188,37 @@ const search = async (query) => {
     }
 
     try {
+        // Intelligent Query Boosting
+        let searchQuery = query;
+        const qLower = query.toLowerCase();
+
+        // If it looks like a podcast search, boost podcast terms
+        if (qLower.includes('podcast') || qLower.includes('episode') || qLower.includes('talk')) {
+            searchQuery += " podcast full episode";
+        } else {
+            // Default to song boosting
+            // Don't add if already present
+            if (!qLower.includes('audio') && !qLower.includes('song') && !qLower.includes('official')) {
+                searchQuery += " audio official";
+            }
+        }
+
+        console.log(`Searching with boosted query: "${searchQuery}"`);
+
         // 1. Try Piped API (Fast)
-        let results = await searchFromPiped(query);
+        // Fetch MORE results to allow for filtering
+        // Piped doesn't support limit param in this endpoint generally, implies default. 
+        // We might need to handle pagination if default is too small, but usually it returns enough.
+        let rawResults = await searchFromPiped(searchQuery);
 
         // 2. Fallback to yt-dlp (Slow but reliable)
-        if (!results || results.length === 0) {
+        if (!rawResults || rawResults.length === 0) {
             console.log('Piped search failed, falling back to yt-dlp');
 
             const cookiePath = writeCookiesFile();
             const args = {
                 dumpSingleJson: true,
-                defaultSearch: 'ytsearch5',
+                defaultSearch: 'ytsearch20', // Fetch 20 results
                 flatPlaylist: true,
                 noWarnings: true,
                 preferFreeFormats: true,
@@ -103,10 +233,10 @@ const search = async (query) => {
                 args.cookies = cookiePath;
             }
 
-            const output = await ytDlp(query, args);
+            const output = await ytDlp(searchQuery, args); // Use boosted query
 
             if (output.entries) {
-                results = output.entries.map(entry => ({
+                rawResults = output.entries.map(entry => ({
                     id: entry.id,
                     title: entry.title,
                     uploader: entry.uploader,
@@ -115,15 +245,59 @@ const search = async (query) => {
                     thumbnail: entry.thumbnail || `https://i.ytimg.com/vi/${entry.id}/hqdefault.jpg`
                 }));
             } else {
-                results = [output];
+                rawResults = [output];
             }
         }
 
-        // Cache the results
-        if (results && results.length > 0) {
-            searchCache.set(cacheKey, { data: results, timestamp: Date.now() });
+        // --- FILTERING & SCORING ---
+        let processedResults = [];
+
+        if (rawResults && rawResults.length > 0) {
+            for (const video of rawResults) {
+                // 1. Hard Block
+                if (isBlocked(video.title, video.uploader)) {
+                    continue;
+                }
+
+                // 2. Classify
+                const classification = classifyVideo(video);
+                if (!classification) {
+                    continue; // Not a song or podcast
+                }
+
+                // 3. Score
+                const score = calculateScore(video, classification);
+
+                processedResults.push({
+                    ...video,
+                    type: classification,
+                    score: score
+                });
+            }
         }
-        return results || [];
+
+        // 4. Sort by Score Descending
+        processedResults.sort((a, b) => b.score - a.score);
+
+        // 5. Cleanup (remove score before returning if not needed, but useful for debug)
+        const finalResults = processedResults.map(r => ({
+            id: r.id,
+            title: r.title,
+            uploader: r.uploader, // channel
+            duration: r.duration,
+            view_count: r.view_count,
+            thumbnail: r.thumbnail,
+            type: r.type,
+            // score: r.score // Optional: keep for debugging
+        }));
+
+        // Cache the results
+        if (finalResults && finalResults.length > 0) {
+            searchCache.set(cacheKey, { data: finalResults, timestamp: Date.now() });
+        }
+
+        return finalResults;
+
     } catch (error) {
         console.error('Error searching YouTube:', error);
         throw error;
