@@ -284,9 +284,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   Future<void> _loadAndPlay(Song song) async {
-    _currentVideoId = song.id;  // Store current video ID
-    // Stop current playback immediately so the user knows the request is processing
-    // and the old song doesn't keep playing while we fetch the new URL.
+    _currentVideoId = song.id;
     await _audioHandler.stop();
 
     try {
@@ -298,28 +296,29 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           id: Uri.file(cachedSong.localAudioPath!).toString(),
           title: song.title,
           artist: song.artist,
-          artUri: Uri.tryParse(song.thumbnail), // Keep remote URL for now for notification
+          artUri: Uri.tryParse(song.thumbnail),
           duration: _parseDuration(song.duration),
         ));
         return;
       }
 
-      // 2. Not Cached? Stream with auto-quality & Cache in Background
-      // Automatically use current network quality - no user intervention needed
+      // 2. Try to stream with auto-quality
       final quality = _networkQualityService.getQualityString();
       debugPrint('Streaming ${song.title} with quality: $quality');
       
-      final streamData = await _apiService.get('/stream', queryParameters: {
-        'videoId': song.id,
-        'quality': quality,  // Auto-selected based on network speed
-      });
-
-      final streamUrl = streamData['url'] as String?;
-      if (streamUrl == null || streamUrl.isEmpty) {
-        throw Exception('No stream URL');
+      String? streamUrl = await _getStreamUrl(song.id, quality, useProxy: false);
+      
+      // 3. If direct URL fails, retry with proxy
+      if (streamUrl == null) {
+        debugPrint('Direct stream failed, trying proxy...');
+        streamUrl = await _getStreamUrl(song.id, quality, useProxy: true);
+      }
+      
+      if (streamUrl == null) {
+        throw Exception('Could not get stream URL');
       }
 
-      // Start playback immediately
+      // Start playback
       await _audioHandler.playMediaItem(MediaItem(
         id: streamUrl,
         title: song.title,
@@ -328,15 +327,30 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         duration: _parseDuration(song.duration),
       ));
 
-      // Trigger background download
+      // Background download
       _cacheService.cacheSong(song, streamUrl);
 
     } catch (e) {
       debugPrint('Failed to play song: $e');
-      // Try next if this one fails
+      // Show error to user or try next song
       if (state.hasNext) {
         next();
       }
+    }
+  }
+  
+  Future<String?> _getStreamUrl(String videoId, String quality, {bool useProxy = false}) async {
+    try {
+      final streamData = await _apiService.get('/stream', queryParameters: {
+        'videoId': videoId,
+        'quality': quality,
+        'useProxy': useProxy.toString(),
+      });
+      
+      return streamData['url'] as String?;
+    } catch (e) {
+      debugPrint('Stream URL error: $e');
+      return null;
     }
   }
 
