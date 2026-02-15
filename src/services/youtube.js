@@ -277,13 +277,9 @@ const search = async (query, userContext = {}) => {
             }
         }
 
-        // Pass 2: Contextual keywords
-        if (qLower.includes('podcast') || qLower.includes('episode') || qLower.includes('talk')) {
-            searchQuery += " podcast full episode";
-        } else {
-            if (!qLower.includes('audio') && !qLower.includes('song') && !qLower.includes('official')) {
-                searchQuery += " audio official";
-            }
+        // Pass 2: Add "song" to help YouTube find music (don't be too specific)
+        if (!qLower.includes('song') && !qLower.includes('audio') && !qLower.includes('music')) {
+            searchQuery += " song";
         }
 
         console.log(`Searching with boosted query: "${searchQuery}"`);
