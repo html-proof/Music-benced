@@ -42,7 +42,7 @@ try {
     console.error('CRITICAL: Firebase Initialization Failed:', error.message);
 }
 
-const db = admin.database();
+const db = admin.database().ref(); // Get the root reference, not the database object
 const auth = admin.auth();
 
 module.exports = { admin, db, auth };
