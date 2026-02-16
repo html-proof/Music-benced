@@ -27,7 +27,8 @@ class Song {
     this.moods = data.moods || [];
     this.tags = data.tags || [];
     this.playCount = data.playCount || 0;
-    this.thumbnail = data.thumbnail || '';
+    // Ensure we always have a thumbnail if there's an ID
+    this.thumbnail = data.thumbnail || (data.id ? `https://i.ytimg.com/vi/${data.id}/hqdefault.jpg` : '');
     this.createdAt = data.createdAt;
   }
 

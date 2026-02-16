@@ -81,7 +81,7 @@ const searchFromPiped = async (query) => {
             // Remove music_songs filter - it's too restrictive
             const searchUrl = `${instance}/search?q=${encodeURIComponent(query)}`;
             console.log(`[Piped Search] URL: ${searchUrl}`);
-            
+
             const res = await fetch(searchUrl, {
                 signal: controller.signal
             });
@@ -91,7 +91,7 @@ const searchFromPiped = async (query) => {
                 console.log(`[Piped Search] Instance ${instance} returned ${res.status}`);
                 continue;
             }
-            
+
             const data = await res.json();
 
             if (!data.items || data.items.length === 0) {
@@ -104,17 +104,24 @@ const searchFromPiped = async (query) => {
             // Map Piped items to our format
             const results = data.items
                 .filter(item => item.type === 'stream')
-                .map(item => ({
-                    id: item.url.split('/watch?v=')[1],
-                    title: item.title,
-                    uploader: item.uploaderName,
-                    duration: item.duration,
-                    view_count: item.views,
-                    thumbnail: item.thumbnail
-                }));
-            
+                .map(item => {
+                    // Extract video ID safely and clean it
+                    const rawId = item.url.split('/watch?v=')[1] || '';
+                    const id = rawId.split('&')[0]; // Remove extra params like &list=...
+
+                    return {
+                        id: id,
+                        title: item.title,
+                        uploader: item.uploaderName,
+                        duration: item.duration,
+                        view_count: item.views,
+                        // Piped can return thumbnail or thumbnailUrl
+                        thumbnail: item.thumbnail || item.thumbnailUrl || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
+                    };
+                });
+
             console.log(`[Piped Search] Filtered to ${results.length} stream items`);
-            
+
             if (results.length > 0) {
                 return results;
             }
@@ -429,6 +436,10 @@ const search = async (query, userContext = {}) => {
                     score: score,
                     title: metadata.title, // clean title
                     language: userContext.language || '',
+                    // ABSOLUTE FALLBACK: If thumbnail is missing or empty, construct it from ID
+                    thumbnail: (video.thumbnail && video.thumbnail.trim().length > 0)
+                        ? video.thumbnail
+                        : `https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`
                 });
             }
         }
@@ -468,7 +479,7 @@ const search = async (query, userContext = {}) => {
 const getStreamUrlFromPiped = async (videoId, quality = 'high') => {
     const normalizedQuality = normalizeQuality(quality);
     console.log(`[Piped] Trying to get stream for ${videoId} with quality ${normalizedQuality}`);
-    
+
     for (let i = 0; i < PIPED_INSTANCES.length; i++) {
         const instance = PIPED_INSTANCES[i];
         try {
@@ -477,7 +488,7 @@ const getStreamUrlFromPiped = async (videoId, quality = 'high') => {
 
             const url = `${instance}/streams/${videoId}`;
             console.log(`[Piped] Trying instance ${i + 1}/${PIPED_INSTANCES.length}: ${instance}`);
-            
+
             const res = await fetch(url, {
                 signal: controller.signal,
             });
@@ -489,15 +500,15 @@ const getStreamUrlFromPiped = async (videoId, quality = 'high') => {
             }
 
             const data = await res.json();
-            
+
             if (data.error) {
                 console.log(`[Piped] Instance ${instance} returned error:`, data.error);
                 continue;
             }
-            
+
             const audioStreams = data.audioStreams || [];
             console.log(`[Piped] Found ${audioStreams.length} audio streams from ${instance}`);
-            
+
             if (audioStreams.length === 0) {
                 console.log(`[Piped] No audio streams available for ${videoId}`);
                 continue;
@@ -521,7 +532,7 @@ const getStreamUrlFromPiped = async (videoId, quality = 'high') => {
             continue;
         }
     }
-    
+
     console.log(`[Piped] All instances failed for ${videoId}`);
     return null;
 };
@@ -557,7 +568,7 @@ const getStreamUrlFromYtDlp = async (videoId, quality = 'high') => {
 const getStreamUrl = async (videoId, quality = 'high') => {
     const normalizedQuality = normalizeQuality(quality);
     console.log(`[getStreamUrl] Starting for ${videoId}, quality: ${normalizedQuality}`);
-    
+
     // 1. Check cache (include quality in cache key)
     const cacheKey = `${videoId}_${normalizedQuality}`;
     const cached = streamCache.get(cacheKey);
