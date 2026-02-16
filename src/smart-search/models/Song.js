@@ -27,6 +27,7 @@ class Song {
     this.moods = data.moods || [];
     this.tags = data.tags || [];
     this.playCount = data.playCount || 0;
+    this.thumbnail = data.thumbnail || '';
     this.createdAt = data.createdAt;
   }
 
@@ -60,6 +61,10 @@ class Song {
 
     if (!this.language || typeof this.language !== 'string' || this.language.trim() === '') {
       errors.push('language is required and must be a non-empty string');
+    }
+
+    if (!this.thumbnail || typeof this.thumbnail !== 'string' || this.thumbnail.trim() === '') {
+      errors.push('thumbnail is required and must be a non-empty string');
     }
 
     // Array fields
@@ -125,6 +130,7 @@ class Song {
       moods: this.moods,
       tags: this.tags,
       playCount: this.playCount,
+      thumbnail: this.thumbnail,
       createdAt: this.createdAt
     };
   }
@@ -144,6 +150,7 @@ class Song {
       moods: [...this.moods],
       tags: [...this.tags],
       playCount: this.playCount,
+      thumbnail: this.thumbnail,
       createdAt: this.createdAt
     });
   }
